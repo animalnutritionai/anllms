@@ -80,6 +80,25 @@ def chat():
 
     messages = history + [{"role": "user", "content": user_message}]
 
+    def blocks_to_dicts(content_blocks):
+        """Convert Anthropic SDK content blocks to plain JSON-serializable
+        dicts so the conversation history can round-trip through jsonify()
+        and back in on the next request."""
+        result = []
+        for block in content_blocks:
+            if block.type == "text":
+                result.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                result.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+            else:
+                result.append(block.model_dump())
+        return result
+
     # Tool-use loop: keep calling Claude until it stops requesting tools.
     for _ in range(10):  # hard cap to avoid a runaway loop
         response = client.messages.create(
@@ -90,14 +109,16 @@ def chat():
             messages=messages,
         )
 
+        assistant_content = blocks_to_dicts(response.content)
+
         if response.stop_reason != "tool_use":
             reply_text = "".join(
-                block.text for block in response.content if block.type == "text"
+                block["text"] for block in assistant_content if block["type"] == "text"
             )
-            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": assistant_content})
             return jsonify({"reply": reply_text, "history": messages})
 
-        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "assistant", "content": assistant_content})
 
         tool_results = []
         for block in response.content:
