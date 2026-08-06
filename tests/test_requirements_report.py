@@ -77,7 +77,29 @@ def test_totals_are_official_not_reimplemented_sums(typical_cow):
 def test_reconciliation_warnings_present(typical_cow):
     animal, milk, ration = typical_cow
     report = build_requirements_report(animal, milk, ration)
-    assert any("gestation/growth/reserve" in w for w in report.warnings)
+    assert any("growth/reserve" in w for w in report.warnings)
+
+
+def test_pregnant_cow_gestation_is_independently_cited_and_nonzero(typical_cow):
+    """
+    With a nonzero gestation day, the report's own cited gestation
+    equations should be nonzero and match closely enough with the
+    reconciliation check that the unexplained gap stays small -- proving
+    gestation is now a genuinely closed, cited component, not just
+    absorbed into the reference model's total.
+    """
+    animal, milk, ration = typical_cow
+    animal.gestation_day = 150
+    report = build_requirements_report(animal, milk, ration)
+    assert report.mp_gestation.value > 0
+    assert report.nel_gestation.value > 0
+    assert "Equation 20-239" in report.mp_gestation.explain()
+    assert "Equation 20-237" in report.nel_gestation.explain()
+    # Growth/reserve are still zero for this cow (no frame/reserve gain
+    # set), so the unexplained gap should stay small even with gestation
+    # now in the mix.
+    assert abs(report.mp_unexplained_gap_g) < 0.5
+    assert abs(report.nel_unexplained_gap_mcal) < 0.5
 
 
 def test_reconciliation_flags_real_mismatch_when_growth_is_nonzero(typical_cow):

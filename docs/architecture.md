@@ -103,17 +103,27 @@ single place to check what still needs follow-up:
 
 ## Recommended next step
 
-Mineral and vitamin SUPPLY is now independently cited for all 13
-minerals and 3 vitamins (closed as of this update) -- balance is
-composed from two cited numbers (requirement + supply), the same
-pattern as MP and NEL balance, not pulled as a single pre-labeled field
-from the reference model.
+Mineral and vitamin SUPPLY is independently cited for all 13 minerals
+and 3 vitamins. Gestation MP and NEL requirement are now independently
+cited (Eq. 20-238/20-239 for MP, Eq. 20-236/20-237 for NEL) -- both
+were closed as of this update.
 
-Remaining known gaps: gestation/growth/reserve MP and NEL requirement
-components still come from the reference model directly (not
-independently cited); mineral/vitamin supply equations still extract
+Remaining known gap, explicitly deferred as its own future task per
+project decision: FRAME/BODY RESERVE GROWTH requirement components
+(Frm/Rsrv terms for both MP and NEL) still come from the reference
+model directly, not independently cited. Unlike gestation, their
+equation numbers were not found in the same requirements-chapter
+sections of the book searched so far -- they likely belong to NASEM's
+separate, larger Growth chapter with its own terminology (empty body
+gain, retained energy, etc.), which hasn't been mapped in this codebase
+yet. This is zero-impact for a standard mature cow with no explicit
+frame/reserve gain target, but affects any scenario modeling active
+heifer growth or deliberate body condition change.
+
+Other remaining gaps: mineral/vitamin supply equations still extract
 their value from the shared full-model run rather than independently
 summing per-ingredient contributions (documented in each equation's
-own known_discrepancies). The live chat interface has been run
-successfully via GitHub Codespaces but not yet stress-tested with
-varied real conversations. A diet optimizer has not been started.
+own known_discrepancies, same scope decision as RUP-derived MP supply).
+The live chat interface has been run successfully via GitHub Codespaces
+but not yet stress-tested with varied real conversations. A diet
+optimizer has not been started.

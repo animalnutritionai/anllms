@@ -52,8 +52,10 @@ from anllms.scientific.energy.dmi_lactating_diet_aware import (
     DMIPredictionLactatingDietAwareNASEM2021,
 )
 from anllms.scientific.energy.energy_supply import TotalEnergySupplyNASEM2021
+from anllms.scientific.energy.gestation_energy import GestationNELRequirementNASEM2021
 from anllms.scientific.energy.lactation import LactationNELRequirementNASEM2021
 from anllms.scientific.energy.maintenance import NELMaintenanceNASEM2021
+from anllms.scientific.protein.gestation_mp import GestationMPRequirementNASEM2021
 from anllms.scientific.protein.milk_mp_requirement import MilkMPRequirementNASEM2021
 from anllms.scientific.protein.mp_maintenance import MPMaintenanceRequirementNASEM2021
 from anllms.scientific.protein.total_mp_supply import TotalMPSupplyNASEM2021
@@ -87,11 +89,13 @@ class RequirementsReport:
 
     nel_maintenance: EquationResult
     nel_lactation: EquationResult
+    nel_gestation: EquationResult
     total_nel_requirement_mcal: float          # OFFICIAL (Trg_NELuse), not our own sum
-    nel_unexplained_gap_mcal: float             # official - (our components + gestation/growth/reserve)
+    nel_unexplained_gap_mcal: float             # official - (our components, now including gestation)
 
     mp_maintenance: EquationResult
     mp_lactation: EquationResult
+    mp_gestation: EquationResult
     total_mp_requirement_g: float               # OFFICIAL (Trg_MPIn_req), not our own sum
     mp_unexplained_gap_g: float
 
@@ -120,15 +124,17 @@ class RequirementsReport:
             "",
             f"NEL requirement (official total): {self.total_nel_requirement_mcal:.2f} Mcal/d "
             f"[our cited maintenance {self.nel_maintenance.value:.2f} + "
-            f"lactation {self.nel_lactation.value:.2f}; remainder is "
-            f"gestation/growth/reserve, not yet individually cited]",
+            f"lactation {self.nel_lactation.value:.2f} + "
+            f"gestation {self.nel_gestation.value:.2f}; remainder is "
+            f"growth/reserve, not yet individually cited]",
             f"NEL supply: {self.nel_supply_total.value:.2f} Mcal/d",
             f"NEL balance (supply - requirement): {self.nel_balance_mcal:.2f} Mcal/d",
             "",
             f"MP requirement (official total): {self.total_mp_requirement_g:.1f} g/d "
             f"[our cited maintenance {self.mp_maintenance.value:.1f} + "
-            f"lactation {self.mp_lactation.value:.1f}; remainder is "
-            f"gestation/growth/reserve, not yet individually cited]",
+            f"lactation {self.mp_lactation.value:.1f} + "
+            f"gestation {self.mp_gestation.value:.1f}; remainder is "
+            f"growth/reserve, not yet individually cited]",
             "",
             f"MP supply (microbial + RUP): {self.mp_supply_total.value:.1f} g/d",
             f"MP balance (supply - requirement): {self.mp_balance_g:.1f} g/d",
@@ -219,25 +225,25 @@ def build_requirements_report(
         milk_true_protein_pct=milk.true_protein_pct,
         milk_lactose_pct=milk.lactose_pct,
     )
+    nel_gestation = GestationNELRequirementNASEM2021().calculate(model_output=model_output)
     energy_req = model_output.Requirements["energy"]
     total_nel_official = energy_req["Trg_NELuse"]
-    nel_gest_growth_reserve = (
-        energy_req["Gest_NELuse"] + energy_req["Frm_NELgain"] + energy_req["Rsrv_NELgain"]
-    )
+    nel_growth_reserve = energy_req["Frm_NELgain"] + energy_req["Rsrv_NELgain"]
     nel_unexplained_gap = total_nel_official - (
-        nel_maintenance.value + nel_lactation.value + nel_gest_growth_reserve
+        nel_maintenance.value + nel_lactation.value + nel_gestation.value + nel_growth_reserve
     )
     if abs(nel_unexplained_gap) > RECONCILIATION_TOLERANCE:
         warnings.append(
             f"NEL requirement reconciliation gap of {nel_unexplained_gap:.2f} Mcal/d "
             f"is NOT fully explained by our cited components + the reference "
-            f"model's gestation/growth/reserve terms. Investigate before trusting "
+            f"model's growth/reserve terms. Investigate before trusting "
             f"this report for this scenario."
         )
     warnings.append(
-        "NEL requirement components for gestation/growth/reserve are taken "
-        "directly from the reference model's output, not from independently "
-        "cited equations in this codebase yet -- see docs/architecture.md."
+        "NEL requirement growth/reserve components are taken directly "
+        "from the reference model's output, not from independently "
+        "cited equations in this codebase yet (gestation is now cited "
+        "-- see docs/architecture.md for the remaining growth/reserve gap)."
     )
 
     # --- Protein: our cited components + official total + reconciliation ---
@@ -247,27 +253,25 @@ def build_requirements_report(
     mp_lactation = MilkMPRequirementNASEM2021().calculate(
         milk_yield_kg=milk.yield_kg, milk_true_protein_pct=milk.true_protein_pct
     )
+    mp_gestation = GestationMPRequirementNASEM2021().calculate(model_output=model_output)
     protein_req = model_output.Requirements["protein"]
     total_mp_official = protein_req["Trg_MPIn_req"]
-    mp_gest_growth_reserve = (
-        protein_req["Gest_MPUse_g_Trg"]
-        + protein_req["Frm_MPUse_g_Trg"]
-        + protein_req["Rsrv_MPUse_g_Trg"]
-    )
+    mp_growth_reserve = protein_req["Frm_MPUse_g_Trg"] + protein_req["Rsrv_MPUse_g_Trg"]
     mp_unexplained_gap = total_mp_official - (
-        mp_maintenance.value + mp_lactation.value + mp_gest_growth_reserve
+        mp_maintenance.value + mp_lactation.value + mp_gestation.value + mp_growth_reserve
     )
     if abs(mp_unexplained_gap) > RECONCILIATION_TOLERANCE:
         warnings.append(
             f"MP requirement reconciliation gap of {mp_unexplained_gap:.1f} g/d "
             f"is NOT fully explained by our cited components + the reference "
-            f"model's gestation/growth/reserve terms. Investigate before trusting "
+            f"model's growth/reserve terms. Investigate before trusting "
             f"this report for this scenario."
         )
     warnings.append(
-        "MP requirement components for gestation/growth/reserve are taken "
-        "directly from the reference model's output, not from independently "
-        "cited equations in this codebase yet -- see docs/architecture.md."
+        "MP requirement growth/reserve components are taken directly "
+        "from the reference model's output, not from independently "
+        "cited equations in this codebase yet (gestation is now cited "
+        "-- see docs/architecture.md for the remaining growth/reserve gap)."
     )
 
     # --- Protein supply: reuse the SAME model run, do not run the model twice ---
@@ -310,10 +314,12 @@ def build_requirements_report(
         dmi_equation_used=dmi_equation_used,
         nel_maintenance=nel_maintenance,
         nel_lactation=nel_lactation,
+        nel_gestation=nel_gestation,
         total_nel_requirement_mcal=total_nel_official,
         nel_unexplained_gap_mcal=nel_unexplained_gap,
         mp_maintenance=mp_maintenance,
         mp_lactation=mp_lactation,
+        mp_gestation=mp_gestation,
         total_mp_requirement_g=total_mp_official,
         mp_unexplained_gap_g=mp_unexplained_gap,
         mp_supply_total=mp_supply_total,
