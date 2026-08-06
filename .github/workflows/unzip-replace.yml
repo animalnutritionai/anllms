@@ -3,7 +3,7 @@ name: Replace repo with uploaded ZIP
 on:
   push:
     paths:
-      - "uploads/*.zip"
+      - "uploads/**"
 
 permissions:
   contents: write
@@ -16,6 +16,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Find ZIP file
+        id: find_zip
+        run: |
+          ZIP=$(find uploads -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "No ZIP file found in uploads folder"
+            exit 1
+          fi
+
+          echo "ZIP=$ZIP" >> "$GITHUB_OUTPUT"
+
       - name: Remove existing project files
         run: |
           find . -mindepth 1 \
@@ -27,11 +39,11 @@ jobs:
 
       - name: Extract ZIP
         run: |
-          unzip -o uploads/*.zip -d .
+          unzip -o "${{ steps.find_zip.outputs.ZIP }}" -d .
 
       - name: Remove ZIP file
         run: |
-          rm uploads/*.zip
+          rm -f uploads/*.zip
 
       - name: Commit replacement
         run: |
@@ -39,5 +51,5 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
-          git commit -m "Replace project from uploaded ZIP" || echo "No changes"
+          git commit -m "Replace project from uploaded ZIP" || echo "No changes to commit"
           git push
