@@ -60,7 +60,12 @@ TOOL_DEFINITIONS = [
                 "milk_lactose_pct": {"type": "number", "description": "Milk lactose, %"},
                 "ration_items": {
                     "type": "array",
-                    "description": "List of ingredients and their inclusion rates",
+                    "description": (
+                        "List of ingredients and their inclusion rates. OPTIONAL -- "
+                        "if omitted, a standard reference diet (nasem_dairy's own "
+                        "built-in demo ration) is used as a placeholder, and the "
+                        "result will say so in its warnings."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -74,7 +79,6 @@ TOOL_DEFINITIONS = [
             "required": [
                 "bw_kg", "bcs", "days_in_milk", "parity", "milk_yield_kg",
                 "milk_fat_pct", "milk_true_protein_pct", "milk_lactose_pct",
-                "ration_items",
             ],
         },
     },
@@ -147,9 +151,14 @@ class ChatSession:
             true_protein_pct=args["milk_true_protein_pct"],
             lactose_pct=args["milk_lactose_pct"],
         )
-        ration = Ration()
-        for item in args["ration_items"]:
-            ration.add(item["name"], item["kg_dm_per_day"])
+        ration_items = args.get("ration_items") or []
+        used_default_diet = not ration_items
+        if ration_items:
+            ration = Ration()
+            for item in ration_items:
+                ration.add(item["name"], item["kg_dm_per_day"])
+        else:
+            ration = Ration.guelph_base_diet()
 
         missing = ration.validate_feedstuffs_exist()
         if missing:
@@ -164,6 +173,17 @@ class ChatSession:
             report = build_requirements_report(animal, milk, ration)
         except Exception as e:
             return {"error": f"Calculation failed: {e}"}
+
+        if used_default_diet:
+            report.warnings.insert(
+                0,
+                "No diet was specified, so this used nasem_dairy's own "
+                "built-in demo ration (alfalfa meal, canola meal, corn "
+                "silage, corn grain HM -- ~24.5 kg DM/d) as a placeholder, "
+                "not a diet formulated for this animal. Anything diet-"
+                "dependent (DMI via Eq. 2-2, MP/mineral/vitamin supply) "
+                "reflects this placeholder, not a real ration.",
+            )
 
         self.last_report = report
 

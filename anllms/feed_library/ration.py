@@ -38,6 +38,29 @@ class Ration:
         self.feedstuffs.append(feedstuff_name)
         self.kg_dm_per_day.append(kg_dm_per_day)
 
+    @classmethod
+    def guelph_base_diet(cls) -> "Ration":
+        """
+        nasem_dairy's own built-in demo ration (nd.demo("lactating_cow_test")),
+        used as a fallback diet composition when a caller hasn't formulated
+        one of their own. This is NOT a NASEM (2021) book example -- it is
+        the reference software's own demo/test fixture (data/demo/ folder,
+        package v1.0.2, matching NASEM_DAIRY_2021_SOFTWARE's pinned version).
+        Cite it as such (SoftwareReference, not a book Citation) wherever
+        it's surfaced to a user.
+
+        Paired animal scenario ("Example Lactating Cow, 100 DIM"): Holstein,
+        parity 1, BW 624.795 kg, BCS 3, 100 DIM, day 46 gestation, target
+        25.062 kg/d milk @ 4.55% fat / 3.66% TP / 4.85% lactose. Total DMI
+        in the original scenario: 24.521 kg/d.
+        """
+        ration = cls()
+        ration.add("Alfalfa meal", 8.2101564407)
+        ration.add("Canola meal", 6.7323288918)
+        ration.add("Corn silage, typical", 5.4734377861)
+        ration.add("Corn grain HM, coarse grind", 4.1050782204)
+        return ration
+
     @property
     def total_dmi_kg(self) -> float:
         return sum(self.kg_dm_per_day)

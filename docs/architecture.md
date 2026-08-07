@@ -127,3 +127,42 @@ own known_discrepancies, same scope decision as RUP-derived MP supply).
 The live chat interface has been run successfully via GitHub Codespaces
 but not yet stress-tested with varied real conversations. A diet
 optimizer has not been started.
+
+## Session update: base-diet fallback, serialization fix, chat logging
+
+**Base-diet fallback for chat queries with no formulated diet.**
+`Ration.guelph_base_diet()` (in `feed_library/ration.py`) now provides
+a fallback diet -- nasem_dairy's own built-in demo ration
+(`nd.demo("lactating_cow_test")`: alfalfa meal, canola meal, corn
+silage typical, corn grain HM coarse grind, ~24.5 kg DM/d), NOT a
+NASEM book example. `chat/tools.py`'s `calculate_lactating_cow_requirements`
+uses this automatically when `ration_items` is omitted, and inserts an
+explicit warning into the report (and the system prompt now instructs
+Claude to relay it) so a placeholder-diet result is never presented as
+if it reflected the user's actual ration.
+
+**Serialization gap found and fixed.** Despite an earlier note that a
+`blocks_to_dicts()` helper had already addressed Anthropic SDK content
+blocks being stored raw in message history, no such helper existed in
+`main` as of this session -- `server.py` was passing raw SDK objects
+(pydantic models) directly to `jsonify()`, which would raise a
+`TypeError` on any turn involving a tool call. This is now fixed:
+`chat/logging_utils.py` provides `blocks_to_dicts()`, used both to
+serialize `messages` before `jsonify()` and for the new chat logger
+below. **Not yet independently re-verified against a live run with a
+real API key** -- next session should confirm the fix resolves a real
+tool-use turn, not just that the code looks correct on inspection.
+
+**Chat transcript logging, test phase only.** Opt-in via
+`ANLLMS_CHAT_LOG=1` env var; writes one timestamped `.jsonl` file per
+server run to `chat/logs/`, one JSON line per turn. **Current policy:
+these logs ARE committed to the repo** (see `chat/logs/README.md`),
+by explicit project decision, because test sessions are verified free
+of real farm/animal data before they're run. This policy does NOT
+carry over to commercial use -- before real customer data is ever
+logged, this needs a full redesign: no git commit, a proper backend
+store (DB or managed logging service), user disclosure/consent,
+a retention limit, access control and encryption at rest, and a legal
+review of what's being collected. Noted here as a forward-looking item,
+not built yet, since there's no real backend or user base to design
+concretely against.

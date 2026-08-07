@@ -18,6 +18,7 @@ import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from chat.logging_utils import blocks_to_dicts, log_turn
 from chat.tools import TOOL_DEFINITIONS, ChatSession
 
 SYSTEM_PROMPT = """You are a dairy nutrition assistant built on the NASEM \
@@ -50,6 +51,10 @@ vitamins use 'vitamin_<Symbol>' (e.g. 'vitamin_E'), for water use 'water'.
 if you are not certain an ingredient name matches the feed library exactly.
 - Keep answers concise and in plain language -- this is a chat interface, \
 not a report.
+- If no ration is given, the calculation tool falls back to a standard \
+reference diet -- say so plainly and offer to use the user's real diet \
+instead, rather than presenting the placeholder result as if it were \
+based on their actual ration.
 """
 
 app = Flask(__name__, static_folder="static")
@@ -94,10 +99,11 @@ def chat():
             reply_text = "".join(
                 block.text for block in response.content if block.type == "text"
             )
-            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": blocks_to_dicts(response.content)})
+            log_turn(user_message, response.content, [])
             return jsonify({"reply": reply_text, "history": messages})
 
-        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "assistant", "content": blocks_to_dicts(response.content)})
 
         tool_results = []
         for block in response.content:
@@ -108,6 +114,7 @@ def chat():
                     "tool_use_id": block.id,
                     "content": str(result),
                 })
+        log_turn(user_message, response.content, tool_results)
         messages.append({"role": "user", "content": tool_results})
 
     return jsonify({"error": "Too many tool-use steps without a final answer."}), 500
