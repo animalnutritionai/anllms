@@ -1,0 +1,11 @@
+{
+  "postStartCommand": "pip install -e '.[chat]' && python chat/server.py &",
+  "portsAttributes": {
+    "5000": {
+      "label": "ANLLMS Chat",
+      "visibility": "private",
+      "onAutoForward": "notify"
+    }
+  }
+}
+
