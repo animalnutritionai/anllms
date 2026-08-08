@@ -166,3 +166,48 @@ a retention limit, access control and encryption at rest, and a legal
 review of what's being collected. Noted here as a forward-looking item,
 not built yet, since there's no real backend or user base to design
 concretely against.
+
+
+---
+
+**File: `docs/architecture.md`**
+
+
+
+## Session update: accessible chat testing via Codespaces (screen-reader workflow)
+
+**Problem.** The GitHub Codespaces IDE (editor UI + embedded terminal) is
+difficult to navigate with JAWS (PC) and VoiceOver (iPhone) -- output is
+often hard to read and the terminal is hard to navigate by screen reader.
+Render and Replit were also tried and found inadequate for the same
+underlying reason: dense, dynamically-updating dashboards are harder for
+screen readers than simpler, page-based UIs. Running a local server was
+ruled out (unwilling to run project code/dependencies on a personal
+laptop). Goal: reach the existing plain `chat/static/index.html` page
+directly, bypassing the IDE entirely, using Codespaces' built-in port
+forwarding.
+
+**Attempt 1: `.devcontainer/devcontainer.json` with a backgrounded
+`postStartCommand`** (`pip install -e '.[chat]' && python chat/server.py &`),
+intended to auto-start the server with zero terminal interaction on every
+Codespace resume. Result: the forwarded chat page loaded but was
+completely blank (not a Codespaces "port not running" error, and a
+nonexistent path returned no error page either -- suggesting Flask never
+actually bound to the port). Likely cause: backgrounding the command with
+`&` meant Flask's own startup output had nowhere to go, so neither a
+person nor Codespaces' automatic port-detection (which watches terminal
+output for a `http://localhost:PORT` line) could see whether `pip install`
+or the server itself succeeded or failed. This `.devcontainer` config was
+not kept in the repo pending further debugging (redirecting output to a
+log file was proposed as the fix, not yet tried).
+
+**Attempt 2 (current working approach): manual terminal launch.**
+`server.py` already binds to `host="0.0.0.0"` (required for Codespaces
+port forwarding to reach it; `localhost`-only binding would not work).
+With `ANTHROPIC_API_KEY` set as a repo-level Codespace secret (auto-injected,
+no manual `export` needed), the commands are:
+
+```bash
+pip install -e ".[chat]"
+python -m chat.server
+
