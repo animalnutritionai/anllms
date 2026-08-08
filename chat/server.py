@@ -123,4 +123,4 @@ def chat():
 if __name__ == "__main__":
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("WARNING: ANTHROPIC_API_KEY is not set. The chat endpoint will fail.")
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", port=5000)
