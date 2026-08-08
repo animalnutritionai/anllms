@@ -7,22 +7,42 @@ BW-scaled amount) rather than a continuous exponential curve.
 
     Ur_Mg_m (g/d) = 0.0007 * BW                          [Eq. 20-398]
     Fe_Mg_m (g/d) = 0.3 * Dt_DMIn                         [Eq. 20-399]
-    An_Mg_m (g/d) = Ur_Mg_m + Fe_Mg_m                     [Eq. 20-400/20-401]
-    An_Mg_g (g/d) = 0.45 * Body_Gain                      [Eq. 20-402, see note]
-    An_Mg_y (g/d) = 0 if GestDay<=190, else 0.3*(BW/715)  [equation number
-                     unclear -- see NOTE below]
+    An_Mg_m (g/d) = Ur_Mg_m + Fe_Mg_m                     [Eq. 20-400]
+    An_Mg_g (g/d) = 0.45 * Body_Gain                      [Eq. 20-401]
+    An_Mg_y (g/d) = 0 if GestDay<=190, else 0.3*(BW/715)  [Eq. 20-402]
     An_Mg_l (g/d) = 0.11 * MilkProd                       [Eq. 20-403]
-    An_Mg_req = An_Mg_m + An_Mg_g + An_Mg_y + An_Mg_l
+    An_Mg_req = An_Mg_m + An_Mg_g + An_Mg_y + An_Mg_l     [Eq. 20-404]
 
-NOTE on equation numbering: the source document has a text-extraction gap
-in this section -- two consecutive "(Equation 20-402)" labels appear with
-no formula text between them, suggesting the growth and gestation formulas
-were both compressed into that gap during extraction (likely from a table
-or image in the original PDF/book that didn't extract as text). Growth is
-confidently Eq. 20-402 based on position; gestation's exact number is NOT
-confirmed and should be verified against a paginated copy of the book
-before being cited elsewhere as authoritative. Flagged honestly rather
-than guessed.
+NOTE on equation numbering (RESOLVED by structural cross-reference, not by
+a direct paginated-book read): the source document's text extraction has
+gaps in this section -- formulas for several equations (An_Mg_g, An_Mg_y,
+An_Mg_req) didn't extract as text, likely because they were images/tables
+in the original PDF, the same failure mode seen for phosphorus's Eq.
+20-385 and 20-391 immediately above this section in the same document.
+The raw extraction also shows two spurious duplicate "(Equation 20-402)"
+labels and a duplicated An_Mg_m formula attached to both 20-400 and
+20-401 -- but the analogous Calcium and Phosphorus sections (Eq. 20-370
+through 20-394), which have the SAME missing-formula problem, show ZERO
+duplicate equation numbers: every number is distinct and sequential, one
+per equation, even when its formula text is missing. This strongly
+suggests the Magnesium duplicates are an extraction artifact, not a real
+book duplication.
+
+Cross-checking the reference software's function order in
+micronutrient_requirement.py (Ur_Mg_m -> Fe_Mg_m -> An_Mg_m -> An_Mg_g ->
+An_Mg_y -> An_Mg_l -> An_Mg_req -> An_Mg_bal -> An_Mg_prod) confirms
+one-equation-per-slot mapping, matching the same pattern independently
+verified for phosphorus (where the software's An_P_req function
+corresponds to the book's own text-missing Eq. 20-391). Applying that
+pattern here resolves the numbering as: An_Mg_m=20-400, An_Mg_g=20-401,
+An_Mg_y=20-402, An_Mg_l=20-403 (already had visible text confirming this
+one), An_Mg_req=20-404, An_Mg_bal=20-405 and An_Mg_prod=20-406 (both
+confirmed directly, formula text visible in the extraction).
+
+This is a HIGH-CONFIDENCE RECONSTRUCTION, not a direct citation read off
+a paginated copy of the book -- flagged as such in each equation's
+known_discrepancies below. A paginated-copy spot-check remains the
+gold-standard confirmation if one becomes available.
 """
 
 from __future__ import annotations
@@ -35,7 +55,7 @@ class MagnesiumMaintenanceNASEM2021(KnowledgeEquation):
     """Magnesium requirement for maintenance: urinary + fecal (NASEM 2021, Eq. 20-398 to 20-401)."""
 
     name = "Magnesium requirement for maintenance (urinary + fecal)"
-    citation = Citation(publication=NASEM_DAIRY_2021, chapter="6/20", equation_number="Equations 20-398, 20-399, 20-400/20-401")
+    citation = Citation(publication=NASEM_DAIRY_2021, chapter="6/20", equation_number="Equations 20-398, 20-399, 20-400")
     variables = [
         Variable(symbol="An_BW", name="Body weight", unit="kg"),
         Variable(symbol="Dt_DMIn", name="Dry matter intake", unit="kg/d"),
@@ -62,16 +82,28 @@ class MagnesiumMaintenanceNASEM2021(KnowledgeEquation):
 
 
 class MagnesiumGrowthNASEM2021(KnowledgeEquation):
-    """Magnesium requirement for growth (NASEM 2021, Eq. 20-402)."""
+    """Magnesium requirement for growth (NASEM 2021, Eq. 20-401)."""
 
     name = "Magnesium requirement for growth"
-    citation = Citation(publication=NASEM_DAIRY_2021, chapter="6/20", equation_number="Equation 20-402")
+    citation = Citation(publication=NASEM_DAIRY_2021, chapter="6/20", equation_number="Equation 20-401")
     variables = [Variable(symbol="Body_Gain", name="Body weight gain", unit="kg/d")]
     formula_text = "An_Mg_g (g/d) = 0.45 * Body_Gain"
     assumptions = ["Simple linear relationship, no BW-scaling term (unlike Ca/P growth equations)."]
     applicability = "Cattle with nonzero targeted body weight gain."
-    limitations = []
+    limitations = ["Equation number resolved by structural cross-reference, not a direct paginated-book read -- see known_discrepancies."]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
+    known_discrepancies = [
+        "This equation's formula text did not extract from the source "
+        "document (likely an image/table in the original PDF). Its number "
+        "was resolved by cross-referencing the analogous, unambiguous "
+        "Calcium/Phosphorus sections (which show the same missing-formula "
+        "pattern but zero duplicate equation numbers) and the reference "
+        "software's function ordering (Ur_Mg_m, Fe_Mg_m, An_Mg_m, An_Mg_g, "
+        "An_Mg_y, An_Mg_l, An_Mg_req, An_Mg_bal, An_Mg_prod). Previously "
+        "cited as Eq. 20-402; corrected to 20-401 on this basis. A "
+        "paginated-copy spot-check would still be the gold-standard "
+        "confirmation.",
+    ]
 
     def calculate(self, body_gain_kg_per_day: float) -> EquationResult:
         import nasem_dairy as nd
@@ -81,12 +113,12 @@ class MagnesiumGrowthNASEM2021(KnowledgeEquation):
 
 
 class MagnesiumGestationNASEM2021(KnowledgeEquation):
-    """Magnesium requirement for gestation -- a step function (NASEM 2021, equation number unconfirmed, see module docstring)."""
+    """Magnesium requirement for gestation -- a step function (NASEM 2021, Eq. 20-402)."""
 
     name = "Magnesium requirement for gestation"
     citation = Citation(
         publication=NASEM_DAIRY_2021, chapter="6/20",
-        equation_number="Number not confirmed due to a source-document extraction gap -- see module docstring",
+        equation_number="Equation 20-402 (resolved by structural cross-reference -- see known_discrepancies)",
     )
     variables = [
         Variable(symbol="An_GestDay", name="Day of gestation", unit="days"),
@@ -101,16 +133,28 @@ class MagnesiumGestationNASEM2021(KnowledgeEquation):
         "(GestDay=130 -> 0 exactly; GestDay=200 -> nonzero), not assumed.",
     ]
     applicability = "Pregnant dairy cattle, particularly relevant only in late gestation (>190 days)."
-    limitations = ["Equation number not independently confirmed -- see known_discrepancies."]
+    limitations = ["Equation number resolved by structural cross-reference, not a direct paginated-book read -- see known_discrepancies."]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
     known_discrepancies = [
-        "The exact book equation number for this formula could not be "
-        "confirmed due to a text-extraction gap in the source document "
-        "(two consecutive equation-number labels with no formula text "
-        "between them). The FORMULA and its step-function behavior are "
-        "confirmed against the reference software and real fixture test "
-        "data; only the citation number is uncertain. Should be verified "
-        "against a paginated copy of the book before being treated as final.",
+        "This equation's formula text did not extract from the source "
+        "document (likely an image/table in the original PDF), and the "
+        "raw extraction showed two spurious duplicate '(Equation 20-402)' "
+        "labels with no formula between them, previously logged as an "
+        "unresolved citation gap. Resolution: the analogous Calcium and "
+        "Phosphorus sections in the same document (Eq. 20-370 to 20-394) "
+        "show the identical missing-formula problem but ZERO duplicate "
+        "equation numbers -- every number there is distinct and "
+        "sequential even when its formula didn't extract. Cross-checking "
+        "the reference software's function order (Ur_Mg_m, Fe_Mg_m, "
+        "An_Mg_m, An_Mg_g, An_Mg_y, An_Mg_l, An_Mg_req, An_Mg_bal, "
+        "An_Mg_prod) against that one-equation-per-slot pattern gives "
+        "An_Mg_g=20-401 and An_Mg_y=20-402. The FORMULA and its "
+        "step-function behavior were already confirmed against the "
+        "reference software and real fixture test data; this resolves "
+        "the citation number too, but by structural inference rather "
+        "than a direct paginated-book read. A paginated-copy spot-check "
+        "would still be the gold-standard confirmation if one becomes "
+        "available.",
     ]
 
     def calculate(self, gestation_day: int, bw_kg: float) -> EquationResult:
@@ -155,7 +199,9 @@ class MagnesiumRequirementNASEM2021(KnowledgeEquation):
     name = "Total magnesium (Mg) requirement"
     citation = Citation(
         publication=NASEM_DAIRY_2021, chapter="6/20",
-        equation_number="Sum of Equations 20-400/20-401, 20-402, [gestation eq. unconfirmed], 20-403",
+        equation_number="Sum of Equations 20-400 (maintenance), 20-401 (growth), 20-402 (gestation), "
+                         "20-403 (lactation); the sum itself corresponds to Eq. 20-404, whose formula "
+                         "text was not independently re-derived here",
     )
     variables = [
         Variable(symbol="An_Mg_m", name="Maintenance Mg", unit="g/d"),
@@ -166,7 +212,11 @@ class MagnesiumRequirementNASEM2021(KnowledgeEquation):
     formula_text = "An_Mg_req = An_Mg_m + An_Mg_g + An_Mg_y + An_Mg_l"
     assumptions = ["Applies to adult (non-calf) cattle."]
     applicability = "Adult dairy cattle: dry, lactating, and/or pregnant."
-    limitations = ["Inherits all limitations of its four components, including the unconfirmed gestation equation number."]
+    limitations = [
+        "Growth and gestation component equation numbers (20-401, 20-402) were resolved by "
+        "structural cross-reference rather than a direct paginated-book read -- see each "
+        "component's own known_discrepancies.",
+    ]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
 
     def calculate(
