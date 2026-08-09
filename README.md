@@ -36,7 +36,7 @@ version bump here, not a merge.
 - `anllms/scientific/` -- one file per equation (or small family of
   equations), each wrapping a real `nasem_dairy` function and adding
   citation/assumption/limitation metadata. Organized by nutrient
-  (`energy/`, `protein/`).
+  (`energy/`, `protein/`, `minerals/`, `vitamins/`).
 - `anllms/feed_library/` -- wraps `nasem_dairy`'s real 284-ingredient
   feed composition table (not reimplemented data).
 - `anllms/simulation/` -- data containers (`AnimalState`, `MilkTarget`,
@@ -54,51 +54,3 @@ version bump here, not a merge.
 
 ```bash
 pip install -e .
-```
-
-To also run the chat server:
-
-```bash
-pip install -e ".[chat]"
-```
-
-## Running tests
-
-```bash
-pytest tests/
-```
-
-## Running the chat server
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-python -m chat.server
-```
-
-Then open `http://localhost:5000`. To log test-session transcripts
-(see `chat/logs/README.md` for the current test-phase-only logging
-policy):
-
-```bash
-export ANLLMS_CHAT_LOG=1
-```
-
-## Status
-
-Covers lactating dairy cows only. Independently cited: DMI prediction
-(2 equations), energy requirements (maintenance + lactation + gestation)
-and supply, protein requirements (maintenance + milk MP + gestation)
-and supply (microbial + RUP), all 13 NASEM minerals and vitamins A/D/E
-(both requirement and supply sides), and water requirement. A real
-Feed Library (`anllms/feed_library/`) derives diet-level composition
-from actual ingredients via `nasem_dairy`'s own aggregation functions,
-rather than requiring diet-level numbers to be entered by hand; when no
-diet is supplied through the chat interface, a standard reference diet
-is used as a placeholder and flagged as such.
-
-Known gaps: frame/reserve body-growth requirement components (likely
-NASEM's separate Growth chapter, unmapped); mineral/vitamin supply is
-pulled from the shared reference-model run rather than independently
-summed per ingredient; one equation citation number is unconfirmed
-(magnesium gestation -- formula verified, citation pending). See
-`docs/architecture.md` for full details and next steps.
