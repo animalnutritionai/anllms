@@ -1,56 +1,104 @@
-# anllms
+# Deploying anllms chat to PythonAnywhere
 
-An explainable, citation-backed nutrient modeling layer for the NASEM
-(2021) dairy cattle model.
+> **STATUS: NOT YET SET UP OR TESTED.** These steps have been written
+> out and reasoned through, but nobody has walked through them yet. Do
+> that before trusting this as a working deployment path -- see
+> `docs/architecture.md`'s matching session-update entry for exactly
+> what's unverified.
 
-## What this is
+This gives you a permanent URL (`https://YOURUSERNAME.pythonanywhere.com`)
+you can just open in Safari -- no Codespaces, no terminal startup ritual,
+no killing terminals between sessions. Everything below happens in
+PythonAnywhere's own browser dashboard (Consoles tab, Web tab, Files tab),
+which uses simpler page-based screens rather than a dense live-updating
+IDE.
 
-`anllms` wraps the University of Guelph's [`nasem_dairy`](https://github.com/CNM-University-of-Guelph/NASEM-Model-Python)
-reference implementation of the NASEM (2021) *Nutrient Requirements of
-Dairy Cattle* model. It does **not** reimplement any of the underlying
-science -- every calculation calls the real `nasem_dairy` functions
-directly. What this package adds is a layer of structured, machine- and
-human-readable explanation around those calculations: every result
-carries its book citation (chapter, equation number), stated assumptions,
-known limitations, alternative equations considered and why they weren't
-used, and any discrepancies found between the book and the reference
-software.
+## One-time setup
 
-The long-term goal is a natural-language assistant that can answer
-dairy nutrition questions while showing exactly which equation, which
-page, and which assumptions produced every number -- not a black box.
+1. **Log in to PythonAnywhere**, go to the **Consoles** tab, start a new
+   **Bash** console.
 
-## Relationship to nasem_dairy
+2. **Clone the repo:**
+   ```bash
+   git clone https://github.com/animalnutritionai/anllms.git
+   ```
 
-`nasem_dairy` is a normal pinned dependency (see `pyproject.toml`), not
-vendored or modified code. This keeps the boundary clear: their code is
-the trusted calculation engine; this repo is the explanation and
-orchestration layer on top of it. Upgrading `nasem_dairy` is just a
-version bump here, not a merge.
+3. **Create a virtual environment** (PythonAnywhere's `mkvirtualenv` comes
+   pre-installed):
+   ```bash
+   mkvirtualenv --python=/usr/bin/python3.10 anllms-env
+   ```
+   (If 3.10 isn't available on your account's Python versions list, use
+   whichever 3.10+ version is offered.)
 
-## Structure
+4. **Install the project into that virtualenv:**
+   ```bash
+   cd anllms
+   pip install -e ".[chat]"
+   ```
 
-- `anllms/knowledge/` -- the shared schema every equation wrapper is
-  built from (`KnowledgeEquation`, `Publication`, `Citation`, etc.). No
-  science here, just the template.
-- `anllms/scientific/` -- one file per equation (or small family of
-  equations), each wrapping a real `nasem_dairy` function and adding
-  citation/assumption/limitation metadata. Organized by nutrient
-  (`energy/`, `protein/`, `minerals/`, `vitamins/`).
-- `anllms/feed_library/` -- wraps `nasem_dairy`'s real 284-ingredient
-  feed composition table (not reimplemented data).
-- `anllms/simulation/` -- data containers (`AnimalState`, `MilkTarget`,
-  `Diet`) and `RequirementsReport`, which composes multiple cited
-  equations plus the reference model's own official totals into one
-  explainable report.
-- `chat/` -- a Flask chat server that exposes the platform through
-  Claude tool-use (`chat/tools.py`), plus opt-in transcript logging
-  for test sessions (`chat/logging_utils.py`).
-- `docs/architecture.md` -- design notes and open scope decisions.
-- `tests/` -- every test validates against real fixture data or the
-  reference software's own output, not invented numbers.
+5. **Go to the Web tab**, click **Add a new web app**.
+   - Choose **Manual configuration** (not the Flask template option --
+     this repo already has its own app).
+   - Choose the same Python version as step 3.
 
-## Installation
+6. **On the Web tab, set:**
+   - **Source code**: `/home/YOURUSERNAME/anllms`
+   - **Virtualenv**: `/home/YOURUSERNAME/.virtualenvs/anllms-env`
+     (the exact path `mkvirtualenv` created -- shown at the end of step 3's
+     output if you want to double check)
+
+7. **Click the WSGI configuration file link** (still on the Web tab). This
+   opens PythonAnywhere's own editor for a file that already exists on
+   your account (not part of this repo). **Delete everything in it** and
+   replace with the contents of `deploy/pythonanywhere_wsgi_template.py`
+   from this repo, after editing its two placeholders:
+   - Your real path from step 6 in place of `project_home`
+   - Your real Anthropic API key in place of the placeholder key
+
+   Save.
+
+8. **Back on the Web tab, click the green Reload button.**
+
+9. **Open the URL shown at the top of the Web tab** in Safari. You should
+   see the same chat page you were reaching via Codespaces port
+   forwarding.
+
+## Every time you update the code
+
+After merging changes on GitHub (or editing directly there):
+
+1. **Consoles tab -> open your existing Bash console** (or start a new
+   one).
+2. ```bash
+   cd anllms
+   git pull
+   ```
+3. **Web tab -> Reload** (green button).
+
+That's the whole update cycle -- no rebuild, no new virtualenv, no
+Codespaces.
+
+## Chat test logging on PythonAnywhere
+
+`ANLLMS_CHAT_LOG=1` is already set in the WSGI template above, so
+sessions log the same way they did in Codespaces, to
+`chat/logs/session_*.jsonl` inside your PythonAnywhere copy of the repo.
+To pull those into the transcript and push them back to GitHub, use the
+same Bash console:
 
 ```bash
-pip install -e .
+cd anllms
+bash chat/logs/publish_transcript.sh
+```
+
+## Known limitations of this setup (free PythonAnywhere tier)
+
+- The web app may go idle after a period of no traffic and take a few
+  seconds to wake up on the next request -- this is normal for the free
+  tier, not a bug.
+- **Free-tier network access confirmed**: `api.anthropic.com` is on
+  PythonAnywhere's current allowlist for free accounts (checked directly
+  against their published allowlist), so the chat bot's calls to Claude
+  should work without upgrading. This is worth re-checking if it ever
+  starts failing, since PythonAnywhere can change the allowlist.
