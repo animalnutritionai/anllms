@@ -90,16 +90,23 @@ These are confirmed gaps or uncertainties, each already flagged in the
 relevant equation's `known_discrepancies` field, collected here as a
 single place to check what still needs follow-up:
 
-- **Magnesium gestation equation number unconfirmed**
+- **Magnesium gestation equation number: RESOLVED by structural
+  cross-reference, not yet by a direct paginated-book read**
   (`scientific/minerals/magnesium.py`, `MagnesiumGestationNASEM2021`).
   The source document has a text-extraction gap around this equation
   (two consecutive "(Equation 20-402)" labels with no formula text
-  between them). The FORMULA is confirmed correct against real fixture
-  test data (including its step-function behavior: zero before day 190
-  of gestation, a fixed BW-scaled amount after). Only the citation
-  number is uncertain. **To resolve:** check a paginated copy of the
-  book directly (not the plain-text extraction this project has been
-  using) to find the actual equation number in that section.
+  between them). The FORMULA was already confirmed correct against real
+  fixture test data (including its step-function behavior: zero before
+  day 190 of gestation, a fixed BW-scaled amount after). The citation
+  number has now been resolved too: cross-referencing the analogous
+  Calcium/Phosphorus sections (same missing-formula pattern, zero
+  duplicate equation numbers) against the reference software's function
+  order (Ur_Mg_m -> Fe_Mg_m -> An_Mg_m -> An_Mg_g -> An_Mg_y -> An_Mg_l
+  -> An_Mg_req) gives growth = Eq. 20-401, gestation = Eq. 20-402.
+  `magnesium.py` and its tests were updated accordingly. This is a
+  high-confidence reconstruction, not a direct paginated-book read --
+  a paginated-copy spot-check would still be the gold-standard
+  confirmation if one becomes available.
 
 ## Recommended next step
 
@@ -210,4 +217,59 @@ no manual `export` needed), the commands are:
 ```bash
 pip install -e ".[chat]"
 python -m chat.server
+```
+
+This is the currently-active testing path: the forwarded port serves
+`chat/static/index.html` directly, bypassing the Codespaces IDE. It has
+been run successfully at least once (see "Recommended next step" above)
+but has not yet been stress-tested with varied real conversations, and
+the `blocks_to_dicts()` serialization fix has not yet been independently
+re-verified against a live tool-use turn with a real API key.
+
+*(Note: this section's code block was left unclosed in a prior save of
+this file, cutting the document off mid-command. Closed out here with
+no new claims added beyond what was already stated elsewhere in this
+document.)*
+
+## Session update: PythonAnywhere deployment path prepared -- NOT YET SET UP OR TESTED
+
+**TO DO, next session: actually walk through this and confirm it works.**
+Nothing below has been run yet -- it's a prepared path, not a working
+deployment.
+
+**What was added.** `deploy/README.md` (step-by-step PythonAnywhere setup
+walkthrough) and `deploy/pythonanywhere_wsgi_template.py` (the WSGI entry
+point PythonAnywhere needs to import `chat/server.py`'s existing `app`
+object). The goal: a permanent `yourusername.pythonanywhere.com` URL
+reachable directly from Safari, replacing the Codespaces
+start-terminal/kill-terminal cycle entirely for day-to-day chat testing.
+
+**Why this should work, unverified.** `chat/server.py`'s `app = Flask(...)`
+is already defined at module level, with `app.run(...)` guarded behind
+`if __name__ == "__main__"` -- so importing `chat.server` without running
+it (as a WSGI server does) should just work, without code changes.
+`api.anthropic.com` was directly confirmed present on PythonAnywhere's
+current free-account allowlist (checked against their published
+allowlist page), so the free tier -- which is what's already set up, no
+card required -- should be able to reach the Anthropic API without an
+upgrade. Both of these are reasoning from how the code and the allowlist
+currently look, not confirmation that the actual deployment works.
+
+**What's still unverified / what to check next session:**
+- Whether the `mkvirtualenv` + `pip install -e ".[chat]"` steps actually
+  succeed on PythonAnywhere's free-tier CPU/disk limits.
+- Whether the WSGI file, once edited with the real repo path and API
+  key, actually serves `chat/static/index.html` and completes a live
+  tool-use turn against `api.anthropic.com` -- the same
+  `blocks_to_dicts()` serialization fix noted above as unverified on
+  Codespaces is equally unverified here, since it's the same code path.
+- Whether PythonAnywhere's free-tier daily CPU-second allowance is
+  sufficient for realistic test-session usage, or whether it becomes a
+  practical limitation.
+- Whether `chat/logs/publish_transcript.sh` runs cleanly from a
+  PythonAnywhere Bash console (git identity/credentials may need setup
+  there separately from Codespaces).
+
+Codespaces remains the last **confirmed-working** testing path until
+this one is actually walked through and verified.
 
