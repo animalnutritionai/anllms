@@ -128,12 +128,22 @@ def chat():
 
     # Tool-use loop: keep calling the model until it stops requesting tools.
     for _ in range(10):  # hard cap to avoid a runaway loop
-        response = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1024,
-            tools=OPENAI_TOOL_DEFINITIONS,
-            messages=messages,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                max_tokens=1024,
+                tools=OPENAI_TOOL_DEFINITIONS,
+                messages=messages,
+            )
+        except Exception as e:
+            # Any failure talking to the proxy/model (bad model alias, proxy
+            # down, rate limit, etc.) -- return clean JSON instead of letting
+            # Flask's default HTML error page reach the frontend, which the
+            # chat UI can't parse as JSON.
+            app.logger.error(f"LLM call failed: {e}")
+            return jsonify({
+                "error": "The AI model is temporarily unavailable -- please try again."
+            }), 502
 
         choice = response.choices[0]
         assistant_message = choice.message
