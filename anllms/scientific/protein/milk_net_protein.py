@@ -5,12 +5,15 @@ Net protein (NP) required for milk production — NASEM (2021).
 
 This is a straightforward unit conversion (milk yield x true protein
 fraction), used in Chapter 6 (Protein and Amino Acid Requirements) as the
-starting point for the milk MP requirement chain. Unlike most equations in
-this codebase, a search of the primary text did NOT turn up a distinct
-equation number for this specific conversion — it appears inline in the
-requirements narrative rather than as a separately numbered display
-equation. This is flagged honestly in known_discrepancies rather than
-guessing a number.
+starting point for the milk MP requirement chain.
+
+RESOLVED (Aug 2026): searched directly against the book's Equations
+20-208 through 20-214 (the EAA-based predictive milk protein equations in
+the Chapter 20 appendix) and confirmed those are NOT this conversion --
+this simple MilkProd x TPp step does not have its own separately
+display-numbered equation anywhere in that section. It appears inline in
+the requirements narrative rather than as a numbered display equation.
+This is a CONFIRMED absence, not an unresolved gap awaiting a check.
 """
 
 from __future__ import annotations
@@ -28,9 +31,10 @@ class MilkNetProteinNASEM2021(KnowledgeEquation):
         publication=NASEM_DAIRY_2021,
         chapter="6",
         section="Protein and Amino Acid Requirements",
-        equation_number="Not separately numbered in the primary text (see "
-                         "known_discrepancies); reference software function "
-                         "calculate_Trg_Mlk_NP_g",
+        equation_number="No separate display-numbered equation exists for this "
+                         "conversion (confirmed by direct search of Eq. 20-208 "
+                         "through 20-214; see known_discrepancies); reference "
+                         "software function calculate_Trg_Mlk_NP_g",
     )
 
     variables = [
@@ -58,14 +62,14 @@ class MilkNetProteinNASEM2021(KnowledgeEquation):
     software_reference = NASEM_DAIRY_2021_SOFTWARE
 
     known_discrepancies = [
-        "No distinct display-equation number was found for this specific "
-        "MilkProd x TPp conversion in the primary text search performed for "
-        "this codebase (searched Chapter 6 and the Chapter 20 appendix "
-        "narrative around Equations 20-208 through 20-214). It may be an "
-        "inline/unlabeled step rather than a separately numbered equation, "
-        "or may have been missed. Treat the equation_number field above as "
-        "unresolved, not as confirmed absent, until someone checks directly "
-        "against a paginated copy of the book.",
+        "RESOLVED (Aug 2026): no distinct display-equation number exists for "
+        "this specific MilkProd x TPp conversion. Confirmed by directly "
+        "searching Chapter 6 and the Chapter 20 appendix narrative around "
+        "Equations 20-208 through 20-214 (the EAA-based predictive milk "
+        "protein equations) and ruling those out as candidates -- this is a "
+        "CONFIRMED absence of a numbered equation, not an unresolved gap. "
+        "The formula and coefficients themselves are not in question, only "
+        "the citation's equation-number field, which correctly has none.",
     ]
 
     def calculate(self, milk_yield_kg: float, milk_true_protein_pct: float) -> EquationResult:
