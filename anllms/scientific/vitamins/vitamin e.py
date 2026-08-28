@@ -18,6 +18,12 @@ The book's own text (Chapter 20) states this pasture credit explicitly:
 of pasture DM intake. The contribution is capped at the total vitamin E
 requirement" -- confirmed directly from the primary text, not just the
 software.
+
+CONFIRMED directly from a paginated copy of the book (user-provided
+screenshot, Aug 2026) -- the criteria table (base/override branches) and
+the pasture-credit paragraph immediately following it both match exactly.
+Previously cited only by structural position (same extraction-gap pattern
+as vitamins A and D); that hedge is now resolved.
 """
 
 from __future__ import annotations
@@ -32,8 +38,7 @@ class VitaminERequirementNASEM2021(KnowledgeEquation):
     name = "Total vitamin E requirement"
     citation = Citation(
         publication=NASEM_DAIRY_2021, chapter="7/20",
-        equation_number="Equation 20-495 (confident attribution by position; "
-                         "formula text itself had a source-extraction gap)",
+        equation_number="Equation 20-495 (confirmed by direct paginated read, Aug 2026)",
     )
     variables = [
         Variable(symbol="An_BW", name="Body weight", unit="kg"),

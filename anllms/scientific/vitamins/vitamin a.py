@@ -7,11 +7,12 @@ Vitamin A requirement — NASEM (2021), Equation 20-491.
 A flat maintenance-like baseline (110 IU/kg BW) with an extra allowance
 kicking in only above 35 kg/d milk production.
 
-NOTE on citation confidence: same extraction-gap pattern as iodine and
-magnesium's gestation equation -- the display formula itself did not
-extract as text, but its position (only equation between the "Vitamin A"
-header and the balance equation, confirmed Eq. 20-492) makes Eq. 20-491
-a confident attribution.
+NOTE on citation confidence: CONFIRMED directly from a paginated copy of
+the book (user-provided screenshot, Aug 2026) -- the criteria table and
+both branches of the formula above match exactly. Previously cited only
+by structural position (same extraction-gap pattern as iodine and
+magnesium's gestation equation, where the display formula itself did not
+extract as text from the source document); that hedge is now resolved.
 """
 
 from __future__ import annotations
@@ -26,8 +27,7 @@ class VitaminARequirementNASEM2021(KnowledgeEquation):
     name = "Total vitamin A requirement"
     citation = Citation(
         publication=NASEM_DAIRY_2021, chapter="7/20",
-        equation_number="Equation 20-491 (confident attribution by position; "
-                         "formula text itself had a source-extraction gap)",
+        equation_number="Equation 20-491 (confirmed by direct paginated read, Aug 2026)",
     )
     variables = [
         Variable(symbol="An_BW", name="Body weight", unit="kg"),

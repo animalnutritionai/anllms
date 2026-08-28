@@ -4,8 +4,10 @@ Vitamin D requirement — NASEM (2021), Equation 20-493.
     An_VitD_req (IU/d) = 40 * BW   if lactating (MilkProd>0)
                         = 32 * BW   if not lactating
 
-Same extraction-gap citation-confidence pattern as vitamin A -- see that
-module's docstring.
+CONFIRMED directly from a paginated copy of the book (user-provided
+screenshot, Aug 2026) -- the criteria table matches exactly. Previously
+cited only by structural position (same extraction-gap pattern as
+vitamin A -- see that module's docstring); that hedge is now resolved.
 """
 
 from __future__ import annotations
@@ -20,8 +22,7 @@ class VitaminDRequirementNASEM2021(KnowledgeEquation):
     name = "Total vitamin D requirement"
     citation = Citation(
         publication=NASEM_DAIRY_2021, chapter="7/20",
-        equation_number="Equation 20-493 (confident attribution by position; "
-                         "formula text itself had a source-extraction gap)",
+        equation_number="Equation 20-493 (confirmed by direct paginated read, Aug 2026)",
     )
     variables = [
         Variable(symbol="An_BW", name="Body weight", unit="kg"),

@@ -1,13 +1,10 @@
 """
-Potassium (K) requirement — NASEM (2021), Equations 20-431 through 20-435.
+Potassium (K) requirement — NASEM (2021), Equations 20-430 through 20-435.
 
 Unlike sodium/chlorine, potassium maintenance has BOTH a urinary and
 fecal term, and the urinary term depends on whether the cow is lactating:
 
-    Ur_K_m (g/d) = 0.2*BW if lactating (MilkProd>0), else 0.07*BW
-        [reflects a higher dietary K requirement for lactating cows,
-         ~1.00% of diet DM vs a lower AI for dry cows/growing heifers,
-         per the book's own stated targets]
+    Ur_K_m (g/d) = 0.2*BW if lactating (MilkProd>0), else 0.07*BW  [Eq. 20-430]
     Fe_K_m (g/d) = 2.5 * Dt_DMIn                           [Eq. 20-431]
     An_K_m (g/d) = Ur_K_m + Fe_K_m                          [Eq. 20-432]
     An_K_g (g/d) = 2.5 * Body_Gain                          [Eq. 20-433]
@@ -15,9 +12,35 @@ fecal term, and the urinary term depends on whether the cow is lactating:
     An_K_l (g/d) = 1.5 * MilkProd                           [Eq. 20-435]
     An_K_req = An_K_m + An_K_g + An_K_y + An_K_l
 
-NOTE: Ur_K_m's own display equation number was not clearly separated in
-the source document extraction (only Fe_K_m and the An_K_m sum appear
-individually numbered); cited here as part of the Eq. 20-431/20-432 block.
+EQUATION NUMBER: Confirmed directly from a paginated copy of the book
+(user-provided screenshot, Aug 2026) -- Ur_K_m is Equation 20-430, sitting
+between An_K_Clf (20-429) and Fe_K_m (20-431). Previously cited only as
+"not separately numbered"; that hedge is now resolved.
+
+KNOWN DISCREPANCY -- coefficient direction (book text vs. reference
+software): the paginated screenshot's criteria table appears to read
+">0 kg/d milk -> 0.07*BW" and "0 kg/d milk -> 0.2*BW" -- the OPPOSITE
+direction from what `nasem_dairy`'s calculate_Ur_K_m() implements
+(0.2*BW when lactating, 0.07*BW when dry), which is also what this
+module's formula and the code below use. Per project decision, the
+reference software is treated as correct here, following NASEM's own
+stated precedence for exactly this kind of conflict (Ch. 20 model
+description, "Nutrient Supply Model" intro):
+
+    "Should there be differences between the description of the model
+    herein and the actual model code written in R, the latter is more
+    likely to be correct, and the difference reflects a mistake in the
+    transcription. The R code was developed and verified over a 4-year
+    period and thus should generally be the more reliable source,
+    although mistakes are certainly possible."
+    -- NASEM (2021), Nutrient Requirements of Dairy Cattle, 8th Rev. Ed.,
+    Ch. 20, "Nutrient Supply Model" (model description introduction)
+
+This is documented in known_discrepancies below (and therefore surfaced
+to end users via explain()) rather than silently picked one way. A
+second, clearer paginated read of that specific cell would still be
+useful to confirm the screenshot wasn't misread, but does not change
+which value the platform calculates.
 """
 
 from __future__ import annotations
@@ -27,10 +50,14 @@ from anllms.knowledge.publications import NASEM_DAIRY_2021, NASEM_DAIRY_2021_SOF
 
 
 class PotassiumMaintenanceNASEM2021(KnowledgeEquation):
-    """Potassium requirement for maintenance: urinary (lactation-dependent) + fecal (NASEM 2021, Eq. 20-431/20-432)."""
+    """Potassium requirement for maintenance: urinary (lactation-dependent) + fecal (NASEM 2021, Eq. 20-430/20-431/20-432)."""
 
     name = "Potassium requirement for maintenance (urinary + fecal)"
-    citation = Citation(publication=NASEM_DAIRY_2021, chapter="6/20", equation_number="Equations 20-431, 20-432 (urinary term not separately numbered, see module docstring)")
+    citation = Citation(
+        publication=NASEM_DAIRY_2021, chapter="6/20",
+        equation_number="Equation 20-430 (Ur_K_m, confirmed by direct paginated read), "
+                         "Equation 20-431 (Fe_K_m), Equation 20-432 (An_K_m sum)",
+    )
     variables = [
         Variable(symbol="Trg_MilkProd", name="Milk yield", unit="kg/d", description="Used only to select the urinary K coefficient (lactating vs not)."),
         Variable(symbol="An_BW", name="Body weight", unit="kg"),
@@ -41,13 +68,44 @@ class PotassiumMaintenanceNASEM2021(KnowledgeEquation):
         "Urinary K coefficient is nearly 3x higher for lactating cows "
         "(0.2 vs 0.07 g/kg BW) -- the book states this reflects a target "
         "dietary K concentration of 1.00% DM for lactating cows, "
-        "considerably higher than the AI for dry cows/growing heifers.",
+        "considerably higher than the AI for dry cows/growing heifers. "
+        "This direction matches the reference software; see "
+        "known_discrepancies for a possible book-text vs. software "
+        "conflict on which coefficient applies to which case.",
         "Uses milk PRODUCTION (>0) as the lactating/non-lactating switch, "
         "not a separate physiological-state flag.",
     ]
     applicability = "Adult (non-calf) dairy cattle, lactating or dry."
-    limitations = []
+    limitations = [
+        "The book's own criteria table for Ur_K_m (Eq. 20-430), as read "
+        "from a paginated screenshot, appears to assign 0.07*BW to "
+        "lactating cows and 0.2*BW to dry cows -- the reverse of what "
+        "the reference software calculates. This platform follows the "
+        "software. See known_discrepancies for the full explanation and "
+        "the NASEM committee's own stated precedence for this situation.",
+    ]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
+    known_discrepancies = [
+        "Possible book-text vs. reference-software conflict on the "
+        "Ur_K_m (Eq. 20-430) coefficient assignment: a user-provided "
+        "paginated screenshot of the book's criteria table appears to "
+        "read '>0 kg/d milk -> 0.07*BW' and '0 kg/d milk -> 0.2*BW', "
+        "the opposite of nasem_dairy's calculate_Ur_K_m() (0.2*BW when "
+        "lactating, 0.07*BW when dry). This platform calculates using "
+        "the software's direction, per NASEM's own stated precedence "
+        "for such conflicts (Ch. 20, 'Nutrient Supply Model' intro): "
+        "\"Should there be differences between the description of the "
+        "model herein and the actual model code written in R, the "
+        "latter is more likely to be correct, and the difference "
+        "reflects a mistake in the transcription. The R code was "
+        "developed and verified over a 4-year period and thus should "
+        "generally be the more reliable source, although mistakes are "
+        "certainly possible.\" Not silently resolved -- flagged here "
+        "per project scientific-integrity rules. A second, clearer "
+        "paginated read of that specific table cell would still be "
+        "useful confirmation, though it would not change the computed "
+        "result either way.",
+    ]
 
     def calculate(self, milk_yield_kg: float, bw_kg: float, dmi_kg: float) -> EquationResult:
         if bw_kg <= 0 or dmi_kg <= 0:
