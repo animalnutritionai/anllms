@@ -13,14 +13,17 @@ scientific/          <- One file per equation (or tight family of equations),
   vitamins/             and returns an EquationResult.
   water/
 
-feed_library/         <- BUILT (was "planned, not yet built" in an earlier
-  ingredient.py           version of this doc). Ingredient knowledge object
-  ration.py               (composition, degradability) and Ration (list of
-                          Ingredient + kg DM/d, aggregates to diet-level
-                          numbers). RUP-derived MP supply still comes from
-                          the shared full-model run rather than being
-                          independently summed per-ingredient here -- see
-                          "Known Open Items" below.
+feed_library/         <- BUILT. Ingredient knowledge object (composition,
+  ingredient.py           degradability), Ration (list of Ingredient +
+  ration.py               kg DM/d, aggregates to diet-level numbers), and
+  rup_supply.py           rup_supply.py (independently sums per-feed
+                          intestinally-digestible RUP via nd.get_feed_data()
+                          -> nd.calculate_feed_data() -> nd.calculate_Dt_idRUPIn(),
+                          the same real functions the full model uses
+                          internally -- no full model run needed for this
+                          number anymore). Verified to match the full
+                          model's own Dt_idRUPIn to rel_tol=1e-6 on the
+                          real lactating_cow_test scenario.
 
 simulation/           <- AnimalState / Diet: plain data, no logic.
                         requirements_report.py composes equation results into
@@ -70,22 +73,23 @@ full test suite (157/158 passing -- the one failure is a pre-existing,
 unrelated stale wording assertion in `test_magnesium.py`, not caused by
 this fix or anything else this session).
 
-## The Feed Library gap (partially closed)
+## The Feed Library gap (mostly closed)
 
-`feed_library/ingredient.py` and `feed_library/ration.py` now exist and
-are wired into the chat tool via `Ration.guelph_base_diet()` (a fallback
-diet -- `nasem_dairy`'s own built-in demo ration, NOT a NASEM book
-example -- used automatically when a chat query doesn't specify a real
-ration, with an explicit warning inserted into the report).
+`feed_library/ingredient.py`, `ration.py`, and `rup_supply.py` now exist.
+`ingredient.py`/`ration.py` are wired into the chat tool via
+`Ration.guelph_base_diet()` (a fallback diet -- `nasem_dairy`'s own
+built-in demo ration, NOT a NASEM book example -- used automatically
+when a chat query doesn't specify a real ration, with an explicit
+warning inserted into the report).
 
-**Still open:** the planned `feed_library/rup_supply.py` (independently
-summing ingredient RUP intake x ingredient intestinal RUP digestibility)
-has not been built. `protein/total_mp_supply.py` currently extracts
-`Dt_idRUPIn` from a full `nasem_dairy` model run instead -- the same
-scope decision already documented for mineral/vitamin supply (see below).
-This is a deliberate, documented gap, not an oversight -- a single
-diet-level "RUP digestibility %" would be a simplification the project's
-own rules argue against.
+`protein/total_mp_supply.py` now sources RUP-derived MP supply from
+`rup_supply.py` independently, rather than extracting `Dt_idRUPIn` from
+a full model run. **Still open:** the microbial half of the same
+equation (`Du_idMiTP_g`) still requires a full model run, because
+`MicrobialCrudeProteinNASEM2021`'s own inputs (rumen-degradable protein
+intake, rumen-digested NDF/starch intake) aren't yet independently
+mapped in this codebase. This is a narrower, different gap than before
+-- tracked below.
 
 ## Known Open Items (tracked, to revisit)
 
@@ -209,11 +213,12 @@ Verified: correctly raises for a dry-cow scenario, does not affect normal
 lactating scenarios, full test suite still passes (157/158, same
 pre-existing unrelated failure as above).
 
-**Mineral/vitamin and RUP supply equations** still extract their value
-from the shared full-model run rather than independently summing
-per-ingredient contributions via the Feed Library (documented in each
-equation's own `known_discrepancies`; see also "The Feed Library gap"
-above).
+**Mineral/vitamin supply equations** still extract their value from the
+shared full-model run rather than independently summing per-ingredient
+contributions via the Feed Library. **RUP supply** no longer has this
+gap (see "The Feed Library gap" above) -- but the total-MP-supply
+equation's microbial half still does, pending independent mapping of
+rumen-degradable-protein and rumen-digestion inputs.
 
 **Diet optimizer** -- not started.
 
@@ -229,8 +234,9 @@ functions only branch on `Calf` vs. non-`Calf`, or on
 `Trg_MilkProd`/`An_Parity_rl` directly, so the hardcoded string is
 functionally inert in every case checked. No fix needed there.
 Recommendation: finish closing gaps in the current mature-lactating-cow
-scope (RUP supply, Frame/Reserve if ever needed) before adding new
-life-stage classes, rather than expanding breadth before depth.
+scope (microbial-supply inputs, Frame/Reserve if ever needed) before
+adding new life-stage classes, rather than expanding breadth before
+depth.
 
 ## Deployment (see README.md for full current details)
 

@@ -96,5 +96,5 @@ def test_explanation_states_scope_decision():
         animal=animal, milk=milk, ration=ration, dmi_kg=animal_input["Trg_Dt_DMIn"]
     )
     explanation = result.explain()
-    assert "chained kinetic system" in explanation or "100+" in explanation
-    assert "not been decomposed" in explanation.lower()
+    assert "independently" in explanation.lower()
+    assert "full nasem_dairy.nasem() model run" in explanation or "full model run" in explanation.lower()
