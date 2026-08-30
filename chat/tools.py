@@ -23,6 +23,7 @@ assistant to say so rather than guess.
 
 from __future__ import annotations
 
+from anllms.decision.evaluate_diet import evaluate_diet
 from anllms.feed_library.ingredient import search_feed_library
 from anllms.feed_library.ration import Ration
 from anllms.simulation.animal_state import AnimalState, MilkTarget
@@ -50,10 +51,12 @@ TOOL_DEFINITIONS = [
         "description": (
             "Calculate dry matter intake, energy (NEL), protein (MP), all "
             "13 NASEM minerals, vitamins A/D/E, and water requirement for a "
-            "LACTATING dairy cow fed a specific ration. Only valid for "
-            "lactating cows -- do not use for dry cows, heifers, or other "
-            "species. All ration ingredient names must be exact matches "
-            "from search_feed_ingredient."
+            "LACTATING dairy cow. Only valid for lactating cows -- do not "
+            "use for dry cows, heifers, or other species. If ration_items "
+            "is omitted, a placeholder demo diet is used instead of a real "
+            "ration -- for a REAL client ration that must be evaluated for "
+            "adequacy, use evaluate_diet instead, which requires a real "
+            "ration and never substitutes a placeholder."
         ),
         "input_schema": {
             "type": "object",
@@ -87,6 +90,60 @@ TOOL_DEFINITIONS = [
             "required": [
                 "bw_kg", "bcs", "days_in_milk", "parity", "milk_yield_kg",
                 "milk_fat_pct", "milk_true_protein_pct", "milk_lactose_pct",
+            ],
+        },
+    },
+    {
+        "name": "evaluate_diet",
+        "description": (
+            "Evaluate a REAL, specific ration for a LACTATING dairy cow "
+            "against NASEM (2021) requirements -- use this whenever the "
+            "user has an actual ration they want checked, critiqued, or "
+            "assessed for adequacy (e.g. 'does this diet meet my client's "
+            "cow's requirements', 'is this ration short on anything', "
+            "'check this ration'). Unlike "
+            "calculate_lactating_cow_requirements, this ALWAYS requires a "
+            "real ration_items list -- it will return an error rather "
+            "than substituting a placeholder diet if none is given. "
+            "Returns each nutrient's % of requirement met and a "
+            "deficient/meets_or_exceeds status, plus a top-level list of "
+            "which nutrients are short, and flags if the ration's own "
+            "total kg DM/d differs meaningfully from the model's "
+            "predicted intake (which is what actually drives the balance "
+            "numbers). All ration ingredient names must be exact matches "
+            "from search_feed_ingredient."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bw_kg": {"type": "number", "description": "Body weight, kg"},
+                "bcs": {"type": "number", "description": "Body condition score, 1-5 scale"},
+                "days_in_milk": {"type": "integer", "description": "Days in milk (DIM)"},
+                "parity": {"type": "integer", "description": "1 = first lactation, 2+ = multiparous"},
+                "milk_yield_kg": {"type": "number", "description": "Milk yield, kg/day"},
+                "milk_fat_pct": {"type": "number", "description": "Milk fat, %"},
+                "milk_true_protein_pct": {"type": "number", "description": "Milk true protein, %"},
+                "milk_lactose_pct": {"type": "number", "description": "Milk lactose, %"},
+                "ration_items": {
+                    "type": "array",
+                    "description": (
+                        "REQUIRED, non-empty. The real ration to evaluate: "
+                        "a list of ingredients and their inclusion rates."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Exact feed library name"},
+                            "kg_dm_per_day": {"type": "number", "description": "kg dry matter per day"},
+                        },
+                        "required": ["name", "kg_dm_per_day"],
+                    },
+                },
+            },
+            "required": [
+                "bw_kg", "bcs", "days_in_milk", "parity", "milk_yield_kg",
+                "milk_fat_pct", "milk_true_protein_pct", "milk_lactose_pct",
+                "ration_items",
             ],
         },
     },
@@ -143,6 +200,9 @@ class ChatSession:
 
         if tool_name == "calculate_lactating_cow_requirements":
             return self._calculate_requirements(tool_input)
+
+        if tool_name == "evaluate_diet":
+            return self._evaluate_diet(tool_input)
 
         if tool_name == "explain_component":
             return self._explain_component(tool_input["component"])
@@ -231,6 +291,85 @@ class ChatSession:
                 "mineral/vitamin supply specifically. "
                 "Use explain_component if the user asks why any of these "
                 "numbers are what they are (e.g. component='mineral_Ca')."
+            ),
+        }
+
+    def _evaluate_diet(self, args: dict) -> dict:
+        animal = AnimalState(
+            bw_kg=args["bw_kg"], bcs=args["bcs"],
+            days_in_milk=args["days_in_milk"], parity=args["parity"],
+        )
+        milk = MilkTarget(
+            yield_kg=args["milk_yield_kg"], fat_pct=args["milk_fat_pct"],
+            true_protein_pct=args["milk_true_protein_pct"],
+            lactose_pct=args["milk_lactose_pct"],
+        )
+        ration_items = args.get("ration_items") or []
+        if not ration_items:
+            return {
+                "error": (
+                    "evaluate_diet requires a real, non-empty ration_items "
+                    "list -- ask the user for their ration's ingredients "
+                    "and amounts, or use calculate_lactating_cow_requirements "
+                    "if a general/reference answer (not tied to a specific "
+                    "client ration) is what's actually wanted."
+                )
+            }
+
+        ration = Ration()
+        for item in ration_items:
+            ration.add(item["name"], item["kg_dm_per_day"])
+
+        missing = ration.validate_feedstuffs_exist()
+        if missing:
+            return {
+                "error": (
+                    f"These ingredient names were not found in the feed library: "
+                    f"{missing}. Use search_feed_ingredient to find exact names."
+                )
+            }
+
+        try:
+            evaluation = evaluate_diet(animal, milk, ration)
+        except Exception as e:
+            return {"error": f"Evaluation failed: {e}"}
+
+        self.last_report = evaluation.report
+
+        def _fmt(n) -> dict:
+            return {
+                "requirement": round(n.requirement, 3),
+                "supply": round(n.supply, 3) if n.supply is not None else None,
+                "unit": n.unit,
+                "balance": round(n.balance, 3) if n.balance is not None else None,
+                "pct_of_requirement": round(n.pct_of_requirement, 1)
+                if n.pct_of_requirement is not None else None,
+                "status": n.status,
+            }
+
+        # Deficient nutrients first so the specialist sees problems immediately.
+        minerals_sorted = sorted(evaluation.minerals, key=lambda n: n.status != "deficient")
+        vitamins_sorted = sorted(evaluation.vitamins, key=lambda n: n.status != "deficient")
+
+        return {
+            "ration_total_dmi_kg_per_day": round(evaluation.ration_total_dmi_kg, 2),
+            "model_predicted_dmi_kg_per_day": round(evaluation.dmi_used_kg, 2),
+            "dmi_mismatch_pct": round(evaluation.dmi_mismatch_pct, 1),
+            "dmi_mismatch_flag": evaluation.dmi_mismatch_flag,
+            "nel": _fmt(evaluation.nel),
+            "mp": _fmt(evaluation.mp),
+            "minerals": {n.name: _fmt(n) for n in minerals_sorted},
+            "vitamins": {n.name: _fmt(n) for n in vitamins_sorted},
+            "deficient_nutrients": evaluation.deficient_nutrients,
+            "warnings": evaluation.warnings,
+            "note": (
+                "status is only ever 'deficient' or 'meets_or_exceeds' -- "
+                "this tool does not judge whether a surplus is a problem "
+                "for a given nutrient. If dmi_mismatch_flag is true, say "
+                "so plainly: the balance numbers reflect the MODEL'S "
+                "PREDICTED intake, not the ration's own total kg DM/d. "
+                "Use explain_component if the user asks why any number "
+                "is what it is."
             ),
         }
 

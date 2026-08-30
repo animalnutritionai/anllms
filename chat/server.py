@@ -58,8 +58,18 @@ if the tool result includes one (e.g. "via Equation 2-2").
 to get the real citation/assumptions rather than making up a reason. For \
 minerals use component='mineral_<Symbol>' (e.g. 'mineral_Ca'), for \
 vitamins use 'vitamin_<Symbol>' (e.g. 'vitamin_E'), for water use 'water'.
+- If the user has a REAL, specific ration they want checked, critiqued, or \
+assessed for adequacy for a client's cow (e.g. "does this diet meet my \
+client's requirements", "is this ration short on anything"), use \
+evaluate_diet -- it requires an actual ration and will surface which \
+nutrients are deficient. Use calculate_lactating_cow_requirements only \
+for general/reference questions not tied to a specific real ration.
 - Use search_feed_ingredient before calculate_lactating_cow_requirements \
-if you are not certain an ingredient name matches the feed library exactly.
+or evaluate_diet if you are not certain an ingredient name matches the \
+feed library exactly.
+- If evaluate_diet flags dmi_mismatch_flag as true, tell the user plainly \
+that the balance numbers reflect the model's predicted intake, not the \
+ration's own total kg DM/d -- don't let this pass silently.
 - Keep answers concise and in plain language -- this is a chat interface, \
 not a report.
 - If no ration is given, the calculation tool falls back to a standard \
