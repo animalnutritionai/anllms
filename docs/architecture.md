@@ -15,15 +15,37 @@ scientific/          <- One file per equation (or tight family of equations),
 
 feed_library/         <- BUILT. Ingredient knowledge object (composition,
   ingredient.py           degradability), Ration (list of Ingredient +
-  ration.py               kg DM/d, aggregates to diet-level numbers), and
-  rup_supply.py           rup_supply.py (independently sums per-feed
-                          intestinally-digestible RUP via nd.get_feed_data()
-                          -> nd.calculate_feed_data() -> nd.calculate_Dt_idRUPIn(),
-                          the same real functions the full model uses
+  ration.py               kg DM/d, aggregates to diet-level numbers).
+  rup_supply.py           rup_supply.py independently sums per-feed
+                          intestinally-digestible RUP via the real
+                          nd.get_feed_data() -> nd.calculate_feed_data()
+                          -> nd.calculate_Dt_idRUPIn() pipeline -- the
+                          same real functions the full model uses
                           internally -- no full model run needed for this
-                          number anymore). Verified to match the full
-                          model's own Dt_idRUPIn to rel_tol=1e-6 on the
-                          real lactating_cow_test scenario.
+                          number. Verified to match the full model's own
+                          Dt_idRUPIn to rel_tol=1e-6 on the real
+                          lactating_cow_test scenario.
+  microbial_substrate.py  NEW this session (Sept 2026). Independently
+                          derives the four inputs
+                          MicrobialCrudeProteinNASEM2021 needs
+                          (An_RDPIn, An_RDP, Rum_DigNDFIn, Rum_DigStIn)
+                          from the same per-feed pipeline -- none of
+                          these depend on the iterative rumen-fill/pH
+                          submodel, only on diet-total nutrient intake
+                          sums, so no full model run is needed here
+                          either. Verified to rel_tol=1e-6 against the
+                          full model's own An_RDPIn/An_RDP/
+                          Rum_DigNDFIn/Rum_DigStIn/Du_MiCP_g on
+                          lactating_cow_test.
+  _feed_data.py           NEW this session (Sept 2026). Internal helper
+                          (build_complete_feed_data()) factoring out the
+                          shared nd.get_feed_data() ->
+                          nd.calculate_feed_data() setup so it's called
+                          in one place, not duplicated between
+                          rup_supply.py and microbial_substrate.py.
+                          rup_supply.py refactored to use it;
+                          behavior unchanged (still passes its own
+                          tests unmodified).
 
 simulation/           <- AnimalState / Diet: plain data, no logic.
                         requirements_report.py composes equation results into
@@ -68,12 +90,18 @@ minerals (14, all 13 minerals plus supporting files), vitamins (3), and
 water (1) -- 91 `KnowledgeEquation` subclasses total. (An earlier version
 of this document said "12 equations mapped so far"; that was accurate at
 the time it was written but is long out of date -- left here only so the
-growth is visible, not as a claim about current scope.)
+growth is visible, not as a claim about current scope.) Unchanged this
+session -- `microbial_substrate.py` and `_feed_data.py` are feed_library
+plumbing (like `rup_supply.py`), not new `KnowledgeEquation` subclasses;
+no new equation was added, an existing one (total_mp_supply.py) had its
+inputs re-sourced.
 
-Test suite: 188/189 passing as of this session (up from 162/163) -- the
-one failure remains the same pre-existing, unrelated stale wording
-assertion in `test_magnesium.py` noted in earlier sessions, untouched by
-this session's work.
+Test suite: 195/196 passing as of this session (Sept 2026, up from
+188/189) -- the one failure remains the same pre-existing, unrelated
+stale wording assertion in `test_magnesium.py` noted in earlier
+sessions, untouched by this session's work. The 7 new passing tests: 5 in
+`tests/test_microbial_substrate.py`, 2 new cases added to
+`tests/test_total_mp_supply.py`.
 
 ## What the integration test caught
 
@@ -155,26 +183,36 @@ it. Render's failure-notification email for the broken commit arrived
 after the fix was already live -- a real but already-resolved alert, not
 a new issue.
 
-## The Feed Library gap (mostly closed)
+## The Feed Library gap (closed, for MP supply)
 
-`feed_library/ingredient.py`, `ration.py`, and `rup_supply.py` now exist.
+`feed_library/ingredient.py`, `ration.py`, `rup_supply.py`,
+`microbial_substrate.py`, and `_feed_data.py` now exist.
 `ingredient.py`/`ration.py` are wired into the chat tool via
 `Ration.guelph_base_diet()` (a fallback diet -- `nasem_dairy`'s own
 built-in demo ration, NOT a NASEM book example -- used automatically
 when a chat query doesn't specify a real ration, with an explicit
-warning inserted into the report). **Note:** `evaluate_diet` (new this
-session) deliberately does NOT use this fallback -- it requires a real
-ration and errors otherwise, since a specialist evaluating an actual
-client ration should never silently receive placeholder-diet numbers.
+warning inserted into the report). **Note:** `evaluate_diet` deliberately
+does NOT use this fallback -- it requires a real ration and errors
+otherwise, since a specialist evaluating an actual client ration should
+never silently receive placeholder-diet numbers.
 
-`protein/total_mp_supply.py` now sources RUP-derived MP supply from
-`rup_supply.py` independently, rather than extracting `Dt_idRUPIn` from
-a full model run. **Still open:** the microbial half of the same
-equation (`Du_idMiTP_g`) still requires a full model run, because
-`MicrobialCrudeProteinNASEM2021`'s own inputs (rumen-degradable protein
-intake, rumen-digested NDF/starch intake) aren't yet independently
-mapped in this codebase. This is a narrower, different gap than before
--- tracked below.
+`protein/total_mp_supply.py` now sources BOTH halves of total MP supply
+independently -- RUP-derived (via `rup_supply.py`) and, as of this
+session (Sept 2026), microbial-derived (via the new
+`microbial_substrate.py` feeding
+the unchanged, already-cited `MicrobialCrudeProteinNASEM2021` /
+`MicrobialMPSupplyNASEM2021`). Neither half requires a full
+`nd.nasem()` model run anymore. `animal`/`milk` parameters on
+`TotalMPSupplyNASEM2021.calculate()` are now optional (kept only for
+call-signature backward compatibility with `requirements_report.py`) --
+the independent path never touches either. `model_output`, if a caller
+happens to have one (e.g. `requirements_report.py`, which runs one
+anyway for other requirement/supply figures), is now used ONLY as an
+optional cross-check surfaced in `inputs_used` -- it no longer supplies
+the returned value. This closes the scope gap this document previously
+tracked as "Mapping those is the natural way to close this remaining
+half" -- see "Known Open Items" below for the one remaining supply-side
+gap (mineral/vitamin supply).
 
 ## Known Open Items (tracked, to revisit)
 
@@ -323,10 +361,13 @@ than returning a plausible-looking but scientifically invalid report.
 
 **Mineral/vitamin supply equations** still extract their value from the
 shared full-model run rather than independently summing per-ingredient
-contributions via the Feed Library. **RUP supply** no longer has this
-gap (see "The Feed Library gap" above) -- but the total-MP-supply
-equation's microbial half still does, pending independent mapping of
-rumen-degradable-protein and rumen-digestion inputs.
+contributions via the Feed Library -- this is now the ONLY remaining
+supply-side gap of this kind. **RUP supply and microbial-supply inputs**
+no longer have this gap (see "The Feed Library gap" above) -- both
+halves of total MP supply are now independently computed, closing the
+gap this document previously tracked here as open (rumen-degradable-
+protein and rumen-digestion inputs are now independently mapped via
+`feed_library/microbial_substrate.py`, this session, Sept 2026).
 
 **Diet solver** -- design settled this session (`diet_request.py`,
 above); optimizer itself not yet built, blocked behind the DMI mode
