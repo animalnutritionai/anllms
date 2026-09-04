@@ -130,3 +130,69 @@ def test_explain_component_handles_mineral_and_vitamin_prefixes():
 
     unknown = session.dispatch("explain_component", {"component": "mineral_XX"})
     assert "error" in unknown
+
+
+# --- DMI dual-mode (dmi_mode='actual' vs 'predict') ---
+
+_TYPICAL_COW_ARGS = {
+    "bw_kg": 650, "bcs": 3.0, "days_in_milk": 150, "parity": 2,
+    "milk_yield_kg": 38, "milk_fat_pct": 3.8, "milk_true_protein_pct": 3.2,
+    "milk_lactose_pct": 4.8,
+    "ration_items": [
+        {"name": "Alfalfa meal", "kg_dm_per_day": 8.0},
+        {"name": "Canola meal", "kg_dm_per_day": 5.0},
+        {"name": "Corn silage, typical", "kg_dm_per_day": 12.0},
+        {"name": "Corn grain HM, coarse grind", "kg_dm_per_day": 3.0},
+    ],
+}
+
+
+def test_calculate_requirements_defaults_to_predict_mode():
+    session = ChatSession()
+    result = session.dispatch(
+        "calculate_lactating_cow_requirements", dict(_TYPICAL_COW_ARGS)
+    )
+    assert result["dmi_mode"] == "predict"
+
+
+def test_calculate_requirements_actual_mode_uses_supplied_dmi():
+    session = ChatSession()
+    args = dict(_TYPICAL_COW_ARGS, dmi_mode="actual", known_dmi_kg=26.4)
+    result = session.dispatch("calculate_lactating_cow_requirements", args)
+    assert "error" not in result
+    assert result["dmi_mode"] == "actual"
+    assert result["dmi_kg_per_day"] == pytest.approx(26.4)
+    assert "Equation 2-1" not in result["dmi_equation_used"]
+    assert "Equation 2-2" not in result["dmi_equation_used"]
+
+
+def test_calculate_requirements_actual_mode_without_known_dmi_kg_errors():
+    session = ChatSession()
+    args = dict(_TYPICAL_COW_ARGS, dmi_mode="actual")
+    result = session.dispatch("calculate_lactating_cow_requirements", args)
+    assert "error" in result
+    assert "known_dmi_kg" in result["error"]
+
+
+def test_evaluate_diet_defaults_to_predict_mode():
+    session = ChatSession()
+    result = session.dispatch("evaluate_diet", dict(_TYPICAL_COW_ARGS))
+    assert "error" not in result
+    assert result["dmi_mode"] == "predict"
+
+
+def test_evaluate_diet_actual_mode_uses_supplied_dmi():
+    session = ChatSession()
+    args = dict(_TYPICAL_COW_ARGS, dmi_mode="actual", known_dmi_kg=28.0)
+    result = session.dispatch("evaluate_diet", args)
+    assert "error" not in result
+    assert result["dmi_mode"] == "actual"
+    assert result["dmi_used_kg_per_day"] == pytest.approx(28.0)
+
+
+def test_evaluate_diet_actual_mode_without_known_dmi_kg_errors():
+    session = ChatSession()
+    args = dict(_TYPICAL_COW_ARGS, dmi_mode="actual")
+    result = session.dispatch("evaluate_diet", args)
+    assert "error" in result
+    assert "known_dmi_kg" in result["error"]

@@ -127,3 +127,54 @@ def test_dmi_mismatch_flag_fires_on_a_clearly_mismatched_ration():
     assert evaluation.dmi_mismatch_flag  # truthy, not `is True` -- upstream values are numpy types
     assert evaluation.dmi_mismatch_pct > 10.0
     assert any("predicted intake" in w for w in evaluation.warnings)
+
+
+# --- DMI dual-mode (dmi_mode='actual' vs 'predict') ---
+
+def test_evaluate_diet_defaults_to_predict_mode():
+    animal, milk = _demo_animal_and_milk()
+    ration = Ration.guelph_base_diet()
+
+    evaluation = evaluate_diet(animal, milk, ration)
+
+    assert evaluation.dmi_mode == "predict"
+
+
+def test_evaluate_diet_actual_mode_uses_supplied_dmi_directly():
+    animal, milk = _demo_animal_and_milk()
+    ration = Ration.guelph_base_diet()
+
+    evaluation = evaluate_diet(
+        animal, milk, ration, dmi_mode="actual", known_dmi_kg=ration.total_dmi_kg,
+    )
+
+    assert evaluation.dmi_mode == "actual"
+    assert evaluation.dmi_used_kg == pytest.approx(ration.total_dmi_kg)
+    # Supplying the ration's own total as the known DMI should mean no
+    # mismatch at all, unlike prediction mode where some daylight is
+    # expected.
+    assert not evaluation.dmi_mismatch_flag
+    assert evaluation.dmi_mismatch_pct == pytest.approx(0.0, abs=1e-6)
+
+
+def test_evaluate_diet_actual_mode_mismatch_warning_is_data_entry_framed():
+    # Deliberately supply a known DMI far from the ration's own total.
+    animal, milk = _demo_animal_and_milk()
+    ration = Ration.guelph_base_diet()
+
+    evaluation = evaluate_diet(
+        animal, milk, ration, dmi_mode="actual", known_dmi_kg=ration.total_dmi_kg * 2,
+    )
+
+    assert evaluation.dmi_mismatch_flag
+    assert any("doesn't actually total to what the cow" in w for w in evaluation.warnings)
+    # Should NOT use the "predicted intake" framing that predict-mode uses.
+    assert not any("predicted intake" in w for w in evaluation.warnings)
+
+
+def test_evaluate_diet_actual_mode_requires_known_dmi_kg():
+    animal, milk = _demo_animal_and_milk()
+    ration = Ration.guelph_base_diet()
+
+    with pytest.raises(ValueError):
+        evaluate_diet(animal, milk, ration, dmi_mode="actual")

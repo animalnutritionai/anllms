@@ -152,3 +152,53 @@ def test_component_results_remain_individually_explainable(typical_cow):
     assert "Equation 3-13" in report.nel_maintenance.explain()
     assert "Equation 20-304" in report.mp_maintenance.explain() or \
            "Equation 20-305" in report.mp_maintenance.explain()
+
+
+# --- DMI dual-mode (dmi_mode='actual' vs 'predict') ---
+
+def test_actual_dmi_mode_bypasses_prediction(typical_cow):
+    animal, milk, ration = typical_cow
+    report = build_requirements_report(
+        animal, milk, ration, dmi_mode="actual", known_dmi_kg=27.3,
+    )
+    assert report.dmi_result.value == 27.3
+    assert "actual" in report.dmi_equation_used.lower() or \
+           "measured" in report.dmi_equation_used.lower()
+    assert "Equation 2-1" not in report.dmi_equation_used
+    assert "Equation 2-2" not in report.dmi_equation_used
+
+
+def test_actual_dmi_mode_requires_known_dmi_kg(typical_cow):
+    animal, milk, ration = typical_cow
+    with pytest.raises(ValueError):
+        build_requirements_report(animal, milk, ration, dmi_mode="actual")
+
+
+def test_actual_dmi_mode_still_drives_downstream_calculations(typical_cow):
+    """
+    The actual-mode DMI value must flow through to the same downstream
+    figures a predicted value would -- proving no special-casing was
+    needed anywhere except DMI sourcing itself.
+    """
+    animal, milk, ration = typical_cow
+    report = build_requirements_report(
+        animal, milk, ration, dmi_mode="actual", known_dmi_kg=27.3,
+    )
+    assert report.total_mp_requirement_g > 0
+    assert report.mp_supply_total.value > 0
+    assert report.water_result.value > 0
+
+
+def test_actual_dmi_mode_produces_a_real_explanation(typical_cow):
+    animal, milk, ration = typical_cow
+    report = build_requirements_report(
+        animal, milk, ration, dmi_mode="actual", known_dmi_kg=27.3,
+    )
+    explanation = report.dmi_result.explain()
+    assert "DMIn_eqn == 0" in explanation
+
+
+def test_invalid_dmi_mode_rejected(typical_cow):
+    animal, milk, ration = typical_cow
+    with pytest.raises(ValueError):
+        build_requirements_report(animal, milk, ration, dmi_mode="bogus")  # type: ignore[arg-type]

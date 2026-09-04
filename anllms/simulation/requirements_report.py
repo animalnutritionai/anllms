@@ -7,8 +7,14 @@ treating our independently-summed components as authoritative on their
 own.
 
 WHAT THIS DOES:
-  1. Predicts DMI via our own cited equations (Eq. 2-1 or 2-2, diet-aware
-     when the cow is >60 DIM).
+  1. Determines DMI in one of two modes (see build_requirements_report()'s
+     dmi_mode parameter): "predict" (default) via our own cited equations
+     (Eq. 2-1 or 2-2, diet-aware when the cow is >60 DIM), or "actual",
+     which skips prediction and uses a caller-supplied measured/estimated
+     DMI directly (MeasuredDMINASEM2021, mirroring the reference
+     software's own DMIn_eqn == 0 mode). Every downstream step below
+     consumes whichever value resulted, without caring which mode
+     produced it.
   2. Runs the real reference model ONCE (via nasem_model_bridge), shared
      by every requirement, supply, and balance calculation below -- the
      full model is never run twice for one report.
@@ -48,6 +54,7 @@ WHAT THIS DELIBERATELY DOES NOT DO YET:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from anllms.knowledge.models import EquationResult
 from anllms.feed_library.ration import Ration
@@ -55,6 +62,7 @@ from anllms.scientific.energy.dmi_lactating import DMIPredictionLactatingNASEM20
 from anllms.scientific.energy.dmi_lactating_diet_aware import (
     DMIPredictionLactatingDietAwareNASEM2021,
 )
+from anllms.scientific.energy.dmi_measured import MeasuredDMINASEM2021
 from anllms.scientific.energy.energy_supply import TotalEnergySupplyNASEM2021
 from anllms.scientific.energy.gestation_energy import GestationNELRequirementNASEM2021
 from anllms.scientific.energy.lactation import LactationNELRequirementNASEM2021
@@ -176,8 +184,32 @@ class RequirementsReport:
 
 
 def build_requirements_report(
-    animal: AnimalState, milk: MilkTarget, ration: Ration
+    animal: AnimalState,
+    milk: MilkTarget,
+    ration: Ration,
+    dmi_mode: Literal["predict", "actual"] = "predict",
+    known_dmi_kg: float | None = None,
 ) -> RequirementsReport:
+    """
+    dmi_mode:
+      "predict" (default, unchanged behavior) -- DMI is predicted via
+        Eq. 2-1 or Eq. 2-2 (diet-aware when >60 DIM), same as before this
+        parameter existed. Use when no real measured/estimated DMI is
+        available for this cow.
+      "actual" -- DMI prediction is skipped entirely. known_dmi_kg is
+        used directly (via MeasuredDMINASEM2021, mirroring the reference
+        software's own DMIn_eqn == 0 mode) and fed to every downstream
+        calculation exactly as a predicted value would be. Preferred
+        whenever a real measured/estimated DMI is available -- per
+        project decision, this is expected to be the common case
+        (~95%) for the onboarding nutrition specialist's real client
+        cows, with "predict" reserved as the fallback.
+
+    Every downstream calculation (the full reference-model run, MP
+    maintenance, minerals, water) only ever consumes dmi_result.value --
+    none of them care whether that value was predicted or supplied
+    directly, so no other code path here changes based on dmi_mode.
+    """
     if milk.yield_kg <= 0:
         raise ValueError(
             "build_requirements_report() does not support dry-cow scenarios "
@@ -192,6 +224,10 @@ def build_requirements_report(
             "that error -- refusing rather than returning a plausible-"
             "looking but scientifically invalid report."
         )
+    if dmi_mode not in ("predict", "actual"):
+        raise ValueError(f"dmi_mode must be 'predict' or 'actual', got {dmi_mode!r}")
+    if dmi_mode == "actual" and known_dmi_kg is None:
+        raise ValueError("dmi_mode='actual' requires known_dmi_kg")
 
     warnings: list[str] = []
 
@@ -199,9 +235,16 @@ def build_requirements_report(
     # own aggregation functions (see Ration.to_diet()), not manually entered ---
     diet = ration.to_diet()
 
-    # --- DMI: use diet-aware equation only within its validated range
-    # (>60 DIM, per the book restriction enforced in that equation itself) ---
-    if animal.days_in_milk > 60:
+    # --- DMI: "actual" mode skips prediction entirely; "predict" mode
+    # keeps the original Eq. 2-1 / Eq. 2-2 (diet-aware, >60 DIM) logic ---
+    if dmi_mode == "actual":
+        dmi_result = MeasuredDMINASEM2021().calculate(dmi_kg=known_dmi_kg)
+        dmi_equation_used = (
+            "Measured/estimated DMI supplied directly (dmi_mode='actual'); "
+            "no NASEM prediction equation was used -- mirrors the reference "
+            "software's own DMIn_eqn == 0 mode."
+        )
+    elif animal.days_in_milk > 60:
         dmi_result = DMIPredictionLactatingDietAwareNASEM2021().calculate(
             diet_forage_ndf_pct=diet.forage_ndf_pct,
             diet_adf_pct=diet.adf_pct,
@@ -210,7 +253,7 @@ def build_requirements_report(
             milk_yield_kg=milk.yield_kg,
             days_in_milk=animal.days_in_milk,
         )
-        dmi_equation_used = "Eq. 2-2 (diet-aware; cow is >60 DIM)"
+        dmi_equation_used = "Eq. 2-2 (diet-aware; cow is >60 DIM; dmi_mode='predict')"
     else:
         prelim_nel_lactation = LactationNELRequirementNASEM2021().calculate(
             milk_yield_kg=milk.yield_kg,
@@ -225,7 +268,10 @@ def build_requirements_report(
             parity=animal.parity,
             target_nel_milk_output=prelim_nel_lactation.value,
         )
-        dmi_equation_used = "Eq. 2-1 (animal-only; cow is <=60 DIM, outside Eq. 2-2's validated range)"
+        dmi_equation_used = (
+            "Eq. 2-1 (animal-only; cow is <=60 DIM, outside Eq. 2-2's "
+            "validated range; dmi_mode='predict')"
+        )
         warnings.append(
             f"Cow is at {animal.days_in_milk} DIM (<=60), so the diet-aware DMI "
             f"equation (Eq. 2-2) could not be used per its own book-stated "

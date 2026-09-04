@@ -69,6 +69,28 @@ TOOL_DEFINITIONS = [
                 "milk_fat_pct": {"type": "number", "description": "Milk fat, %"},
                 "milk_true_protein_pct": {"type": "number", "description": "Milk true protein, %"},
                 "milk_lactose_pct": {"type": "number", "description": "Milk lactose, %"},
+                "dmi_mode": {
+                    "type": "string",
+                    "enum": ["predict", "actual"],
+                    "description": (
+                        "How dry matter intake (DMI) is determined. 'predict' "
+                        "(default) uses NASEM's DMI prediction equations. "
+                        "'actual' uses a real measured/estimated DMI you supply "
+                        "via known_dmi_kg instead of predicting it -- ALWAYS ask "
+                        "the user whether they already know the cow's actual DMI "
+                        "before defaulting to prediction, since a real measured "
+                        "value is generally more accurate than any prediction "
+                        "equation."
+                    ),
+                },
+                "known_dmi_kg": {
+                    "type": "number",
+                    "description": (
+                        "Required if dmi_mode='actual': the cow's real measured "
+                        "or reliably estimated DMI in kg/day, used directly "
+                        "instead of predicting it."
+                    ),
+                },
                 "ration_items": {
                     "type": "array",
                     "description": (
@@ -124,6 +146,29 @@ TOOL_DEFINITIONS = [
                 "milk_fat_pct": {"type": "number", "description": "Milk fat, %"},
                 "milk_true_protein_pct": {"type": "number", "description": "Milk true protein, %"},
                 "milk_lactose_pct": {"type": "number", "description": "Milk lactose, %"},
+                "dmi_mode": {
+                    "type": "string",
+                    "enum": ["predict", "actual"],
+                    "description": (
+                        "How dry matter intake (DMI) is determined. 'predict' "
+                        "(default) uses NASEM's DMI prediction equations. "
+                        "'actual' uses a real measured/estimated DMI you supply "
+                        "via known_dmi_kg instead of predicting it -- ALWAYS ask "
+                        "the user whether they already know the cow's actual DMI "
+                        "before defaulting to prediction, since a real measured "
+                        "value is generally more accurate than any prediction "
+                        "equation, and most real client cows evaluated here will "
+                        "have one."
+                    ),
+                },
+                "known_dmi_kg": {
+                    "type": "number",
+                    "description": (
+                        "Required if dmi_mode='actual': the cow's real measured "
+                        "or reliably estimated DMI in kg/day, used directly "
+                        "instead of predicting it."
+                    ),
+                },
                 "ration_items": {
                     "type": "array",
                     "description": (
@@ -237,8 +282,21 @@ class ChatSession:
                 )
             }
 
+        dmi_mode = args.get("dmi_mode", "predict")
+        known_dmi_kg = args.get("known_dmi_kg")
+        if dmi_mode == "actual" and known_dmi_kg is None:
+            return {
+                "error": (
+                    "dmi_mode='actual' requires known_dmi_kg (the cow's real "
+                    "measured/estimated DMI in kg/day) -- ask the user for it, "
+                    "or omit dmi_mode to fall back to prediction."
+                )
+            }
+
         try:
-            report = build_requirements_report(animal, milk, ration)
+            report = build_requirements_report(
+                animal, milk, ration, dmi_mode=dmi_mode, known_dmi_kg=known_dmi_kg
+            )
         except Exception as e:
             return {"error": f"Calculation failed: {e}"}
 
@@ -256,6 +314,7 @@ class ChatSession:
         self.last_report = report
 
         return {
+            "dmi_mode": dmi_mode,
             "dmi_kg_per_day": round(report.dmi_result.value, 2),
             "dmi_equation_used": report.dmi_equation_used,
             "nel_requirement_mcal_per_day": round(report.total_nel_requirement_mcal, 2),
@@ -329,8 +388,21 @@ class ChatSession:
                 )
             }
 
+        dmi_mode = args.get("dmi_mode", "predict")
+        known_dmi_kg = args.get("known_dmi_kg")
+        if dmi_mode == "actual" and known_dmi_kg is None:
+            return {
+                "error": (
+                    "dmi_mode='actual' requires known_dmi_kg (the cow's real "
+                    "measured/estimated DMI in kg/day) -- ask the user for it, "
+                    "or omit dmi_mode to fall back to prediction."
+                )
+            }
+
         try:
-            evaluation = evaluate_diet(animal, milk, ration)
+            evaluation = evaluate_diet(
+                animal, milk, ration, dmi_mode=dmi_mode, known_dmi_kg=known_dmi_kg
+            )
         except Exception as e:
             return {"error": f"Evaluation failed: {e}"}
 
@@ -352,8 +424,9 @@ class ChatSession:
         vitamins_sorted = sorted(evaluation.vitamins, key=lambda n: n.status != "deficient")
 
         return {
+            "dmi_mode": evaluation.dmi_mode,
             "ration_total_dmi_kg_per_day": round(evaluation.ration_total_dmi_kg, 2),
-            "model_predicted_dmi_kg_per_day": round(evaluation.dmi_used_kg, 2),
+            "dmi_used_kg_per_day": round(evaluation.dmi_used_kg, 2),
             "dmi_mismatch_pct": round(evaluation.dmi_mismatch_pct, 1),
             "dmi_mismatch_flag": evaluation.dmi_mismatch_flag,
             "nel": _fmt(evaluation.nel),
@@ -365,9 +438,12 @@ class ChatSession:
             "note": (
                 "status is only ever 'deficient' or 'meets_or_exceeds' -- "
                 "this tool does not judge whether a surplus is a problem "
-                "for a given nutrient. If dmi_mismatch_flag is true, say "
-                "so plainly: the balance numbers reflect the MODEL'S "
-                "PREDICTED intake, not the ration's own total kg DM/d. "
+                "for a given nutrient. If dmi_mismatch_flag is true, say so "
+                "plainly, framed by dmi_mode: in 'predict' mode, the balance "
+                "numbers reflect the MODEL'S PREDICTED intake, not the "
+                "ration's own total kg DM/d; in 'actual' mode, it means the "
+                "ration as entered doesn't total to the measured/estimated "
+                "DMI supplied -- a data-entry question, not a modeling one. "
                 "Use explain_component if the user asks why any number "
                 "is what it is."
             ),
