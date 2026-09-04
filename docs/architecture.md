@@ -8,6 +8,11 @@ knowledge/          <- KnowledgeEquation base class, Publication/SoftwareReferen
 
 scientific/          <- One file per equation (or tight family of equations),
   energy/               each a KnowledgeEquation subclass that WRAPS the real
+    dmi_measured.py       NEW this session (Sept 2026). NOT a predictive
+                          equation -- wraps a caller-supplied (measured/
+                          estimated) DMI directly, mirroring the reference
+                          software's own DMIn_eqn == 0 mode. See "DMI
+                          actual-vs-predicted mode" below.
   protein/              nasem_dairy function (never reimplements it), adds
   minerals/             citation/assumptions/limitations/known_discrepancies,
   vitamins/             and returns an EquationResult.
@@ -25,8 +30,7 @@ feed_library/         <- BUILT. Ingredient knowledge object (composition,
                           number. Verified to match the full model's own
                           Dt_idRUPIn to rel_tol=1e-6 on the real
                           lactating_cow_test scenario.
-  microbial_substrate.py  NEW this session (Sept 2026). Independently
-                          derives the four inputs
+  microbial_substrate.py  Independently derives the four inputs
                           MicrobialCrudeProteinNASEM2021 needs
                           (An_RDPIn, An_RDP, Rum_DigNDFIn, Rum_DigStIn)
                           from the same per-feed pipeline -- none of
@@ -37,71 +41,80 @@ feed_library/         <- BUILT. Ingredient knowledge object (composition,
                           full model's own An_RDPIn/An_RDP/
                           Rum_DigNDFIn/Rum_DigStIn/Du_MiCP_g on
                           lactating_cow_test.
-  _feed_data.py           NEW this session (Sept 2026). Internal helper
-                          (build_complete_feed_data()) factoring out the
-                          shared nd.get_feed_data() ->
+  _feed_data.py           Internal helper (build_complete_feed_data())
+                          factoring out the shared nd.get_feed_data() ->
                           nd.calculate_feed_data() setup so it's called
                           in one place, not duplicated between
                           rup_supply.py and microbial_substrate.py.
-                          rup_supply.py refactored to use it;
-                          behavior unchanged (still passes its own
-                          tests unmodified).
 
 simulation/           <- AnimalState / Diet: plain data, no logic.
                         requirements_report.py composes equation results into
-                        one explainable report. Now refuses (raises
-                        ValueError) rather than silently miscalculating for
-                        dry-cow scenarios -- see "Known Open Items" below.
+                        one explainable report. Refuses (raises ValueError)
+                        rather than silently miscalculating for dry-cow
+                        scenarios -- see "Known Open Items" below.
+                        build_requirements_report() NOW SUPPORTS a
+                        dmi_mode parameter ("predict" | "actual") -- see
+                        "DMI actual-vs-predicted mode: RESOLVED" below.
+                        No changes were needed to nasem_model_bridge.py:
+                        it already always calls nd.nasem() with
+                        DMIn_eqn=0, accepting whatever dmi_kg value it's
+                        handed regardless of how that value was produced.
 
-decision/             <- NEW this session (Aug 2026). Diet evaluation and
-                        (eventually) solving -- permanently separate from the
-                        citation/calculation layers above by a ONE-WAY import
-                        boundary, machine-enforced by
-                        tests/test_import_boundaries.py: decision/ may import
-                        FROM knowledge/, scientific/, feed_library/,
-                        simulation/, but none of those may ever import FROM
-                        decision/. This is a permanent architectural
-                        decision, not provisional pending a repo split (no
-                        repo separation planned for at least two years).
+decision/             <- Diet evaluation and (eventually) solving --
+                        permanently separate from the citation/calculation
+                        layers above by a ONE-WAY import boundary,
+                        machine-enforced by tests/test_import_boundaries.py:
+                        decision/ may import FROM knowledge/, scientific/,
+                        feed_library/, simulation/, but none of those may
+                        ever import FROM decision/. This is a permanent
+                        architectural decision, not provisional pending a
+                        repo split (no repo separation planned for at
+                        least two years).
                           evaluate_diet.py  <- given a REAL ration, does it
                             meet NASEM requirements? Wraps
                             requirements_report.build_requirements_report()
                             directly, adds: (a) a hard requirement for a
                             real ration (no placeholder fallback), (b) a
                             flag when the ration's own total kg DM/d
-                            diverges from the model's predicted DMI by
-                            >10%, (c) per-nutrient %-of-requirement +
-                            deficient/meets_or_exceeds status, sorted so
-                            deficient nutrients surface first. Wired into
-                            the chat tool as evaluate_diet (see below).
+                            diverges from the DMI value actually used by
+                            >10% -- worded differently depending on
+                            dmi_mode (see below), (c) per-nutrient
+                            %-of-requirement + deficient/meets_or_exceeds
+                            status, sorted so deficient nutrients surface
+                            first. NOW SUPPORTS dmi_mode/known_dmi_kg,
+                            passed straight through to
+                            build_requirements_report(). Wired into the
+                            chat tool as evaluate_diet (see below).
                           diet_request.py   <- ObjectiveSpec / IngredientBound
                             / NutrientBound / SolveRequest: the objective +
                             constraint spec the not-yet-built solve_diet
                             will consume. Validated and tested ahead of the
-                            optimizer itself. Includes placeholder
-                            dmi_mode / known_dmi_kg fields -- see the DMI
-                            open item below before building on those.
-                          solve_diet.py     <- NOT YET BUILT.
+                            optimizer itself. dmi_mode / known_dmi_kg are
+                            NO LONGER PLACEHOLDERS -- the decision they were
+                            waiting on is resolved (see below); solve_diet
+                            is expected to honor them the same way
+                            evaluate_diet now does, once built.
+                          solve_diet.py     <- NOT YET BUILT. Next planned
+                            piece of work.
                           sensitivity.py    <- NOT YET BUILT.
 ```
 
-As of this update: 35 equation files across energy (7), protein (10),
-minerals (14, all 13 minerals plus supporting files), vitamins (3), and
-water (1) -- 91 `KnowledgeEquation` subclasses total. (An earlier version
-of this document said "12 equations mapped so far"; that was accurate at
-the time it was written but is long out of date -- left here only so the
-growth is visible, not as a claim about current scope.) Unchanged this
-session -- `microbial_substrate.py` and `_feed_data.py` are feed_library
-plumbing (like `rup_supply.py`), not new `KnowledgeEquation` subclasses;
-no new equation was added, an existing one (total_mp_supply.py) had its
-inputs re-sourced.
+As of this update: 36 equation files across energy (8, including the new
+`dmi_measured.py`), protein (10), minerals (14, all 13 minerals plus
+supporting files), vitamins (3), and water (1) -- 92 `KnowledgeEquation`
+subclasses total. (An earlier version of this document said "12 equations
+mapped so far"; that was accurate at the time it was written but is long
+out of date -- left here only so the growth is visible, not as a claim
+about current scope.)
 
-Test suite: 195/196 passing as of this session (Sept 2026, up from
-188/189) -- the one failure remains the same pre-existing, unrelated
-stale wording assertion in `test_magnesium.py` noted in earlier
-sessions, untouched by this session's work. The 7 new passing tests: 5 in
-`tests/test_microbial_substrate.py`, 2 new cases added to
-`tests/test_total_mp_supply.py`.
+Test suite: **213/214 passing** as of this session (Sept 2026, up from
+195/196) -- the one failure remains the same pre-existing, unrelated
+stale wording assertion in `test_magnesium.py` noted in earlier sessions,
+untouched by this session's work. The 18 new passing tests this session:
+5 in `tests/test_dmi_measured.py` (new file), 5 new cases in
+`tests/test_requirements_report.py`, 4 new cases in
+`tests/test_evaluate_diet.py`, 6 new cases in `tests/test_chat_tools.py`
+(net +18 after accounting for one pre-existing test's wording tweak).
 
 ## What the integration test caught
 
@@ -114,28 +127,82 @@ microbial protein alone (see the report's negative "partial MP balance").
 That's not a bug — it's the expected, correct signal that RUP is a real
 and necessary MP source, not an optional refinement.
 
-## Diet evaluation and solving (new this session, Aug 2026)
+## DMI actual-vs-predicted mode: RESOLVED (Sept 2026 session)
+
+**The decision, and what it closes:** `build_requirements_report()` and
+`evaluate_diet()` both now accept `dmi_mode: Literal["predict", "actual"]
+= "predict"` and `known_dmi_kg: float | None = None`.
+
+- **`dmi_mode="predict"`** (default, unchanged behavior) -- DMI is
+  predicted via Eq. 2-1 or diet-aware Eq. 2-2, exactly as before this
+  session. Used when no real measured/estimated DMI is available.
+- **`dmi_mode="actual"`** -- DMI prediction is skipped entirely.
+  `known_dmi_kg` is wrapped by the new `MeasuredDMINASEM2021`
+  (`scientific/energy/dmi_measured.py`) and fed to every downstream
+  calculation exactly as a predicted value would be. This mirrors the
+  reference software's own `DMIn_eqn == 0` mode (use the caller-supplied
+  `Trg_Dt_DMIn` directly) -- not an invented shortcut; `nasem_model_bridge.py`
+  has in fact always called `nd.nasem()` this way, so no change was
+  needed there. Preferred whenever a real measured/estimated DMI is
+  available -- per project decision (Aug 2026 working discussion),
+  expected to be the common case (~95%) for the onboarding specialist's
+  real client cows, with "predict" reserved as the fallback.
+
+**Why a citation-backed equation object for a pass-through value:** so
+`explain_component("dmi")` has something real to describe in actual mode
+too, using the exact same explain()/citation machinery as every predicted
+path, rather than a special-cased blank. Its citation documents plainly
+that no numbered book equation applies -- this is the software's
+`DMIn_eqn==0` mode, not a citation gap.
+
+**Mismatch-warning wording is now mode-aware.** In "predict" mode, a
+ration-total-vs-DMI-used mismatch is a real NASEM-modeling subtlety
+(predicted intake, not the ration's own total, drives every downstream
+number). In "actual" mode, the same mismatch means the ration as entered
+doesn't total to what the cow is reported to actually be eating -- a
+data-entry question, not a modeling one. `evaluate_diet()` now emits
+different warning text for each case so a specialist is never told a
+data-entry problem is a modeling uncertainty or vice versa.
+
+**Chat tool surface:** both `calculate_lactating_cow_requirements` and
+`evaluate_diet` tool schemas (`chat/tools.py`) gained optional
+`dmi_mode` (enum) and `known_dmi_kg` fields, with tool descriptions
+instructing the LLM to ask the user whether they already know the cow's
+actual DMI before defaulting to prediction. Default stays `"predict"`,
+so no existing caller breaks.
+
+**One open question, deliberately left to solve_diet's own build
+session, not resolved here:** if `dmi_mode="actual"` and a future
+optimizer explores candidate rations materially different from the one
+`known_dmi_kg` was measured against, a fixed measured value may not
+reflect what the cow would actually eat on a very different diet.
+`MeasuredDMINASEM2021`'s own `limitations` field and `diet_request.py`'s
+module docstring both flag this; it's a solver-design question (how far
+is the optimizer allowed to roam from the current ration) rather than
+something the single-ration `evaluate_diet` case needs to solve.
+
+## Diet evaluation and solving
 
 The onboarding nutrition specialist's real use case -- generating and
 checking diets for dairy farm clients -- needs more than the
-citation/explanation engine above provides. Design discussion this
-session settled on a small set of composable primitives the chat LLM can
-call, rather than trying to enumerate every phrasing a specialist might
-use:
+citation/explanation engine above provides. Design discussion settled on
+a small set of composable primitives the chat LLM can call, rather than
+trying to enumerate every phrasing a specialist might use:
 
-- **`evaluate_diet`** -- BUILT. Given a real ration, is it adequate?
-  (this session's deliverable, described above).
-- **`solve_diet`** -- NOT YET BUILT. Least-cost / IOFC-maximizing diet
-  formulation. Decided this session: treats `nd.nasem()` as a black box
-  (a derivative-free global optimizer, e.g. `scipy.optimize.
-  differential_evolution`, calling the REAL full model per candidate
-  ration) rather than a linearized approximation -- NASEM's microbial
-  protein synthesis and NEL feeding-level corrections are nonlinear
-  enough to rule out a pure linear-programming approach. This mirrors
-  published precedent (a 2024 J. Animal Science evaluation used the same
-  SciPy differential-evolution approach against NASEM). The objective +
-  constraint spec it will consume is built (`diet_request.py`, above);
-  the optimizer itself is not.
+- **`evaluate_diet`** -- BUILT, and now DMI-mode-aware (see above).
+- **`solve_diet`** -- NOT YET BUILT. Next planned piece of work now that
+  the DMI mode decision (previously the stated blocker) is resolved.
+  Least-cost / IOFC-maximizing diet formulation. Decided: treats
+  `nd.nasem()` as a black box (a derivative-free global optimizer, e.g.
+  `scipy.optimize.differential_evolution`, calling the REAL full model
+  per candidate ration) rather than a linearized approximation --
+  NASEM's microbial protein synthesis and NEL feeding-level corrections
+  are nonlinear enough to rule out a pure linear-programming approach.
+  This mirrors published precedent (a 2024 J. Animal Science evaluation
+  used the same SciPy differential-evolution approach against NASEM).
+  The objective + constraint spec it will consume is built
+  (`diet_request.py`, above, dmi_mode/known_dmi_kg no longer
+  placeholders); the optimizer itself is not.
 - **`sweep_parameter`** -- NOT YET BUILT. Powers sensitivity/what-if
   questions (e.g. "how does the optimal diet change as corn silage NDF
   digestibility varies") and scenario-planning questions (e.g. purchase
@@ -183,36 +250,71 @@ it. Render's failure-notification email for the broken commit arrived
 after the fix was already live -- a real but already-resolved alert, not
 a new issue.
 
+## Recurring workflow risk: file-upload naming (Sept 2026 session)
+
+**This is the same category of bug as "Critical bug found and fixed"
+above, and it recurred this session in a new form -- worth a permanent
+note since it has now happened multiple times across different
+mechanisms.** This session's file-delivery workflow (Claude generates a
+file, presents it via a download/share UI, person saves it into Working
+Copy on iOS, then moves/renames it into place via GitHub's web editor)
+produced two distinct new failure modes before landing correctly:
+
+1. **Display-name-as-filename:** the file-sharing UI shows a
+   human-readable title with underscores replaced by spaces (e.g.
+   "dmi measured" instead of `dmi_measured.py`). When that displayed
+   name was used as the actual saved filename, files landed with spaces
+   in place of underscores.
+2. **New-file-instead-of-overwrite:** when a re-uploaded file's name
+   didn't exactly match the file it was meant to replace (e.g. a
+   trailing space, or copying the path text with extra whitespace), git/
+   GitHub created a brand-new file alongside the old one instead of
+   replacing it -- leaving the OLD, stale content live at the correctly-
+   named path while the NEW content sat under a wrongly-named sibling
+   file. This is dangerous specifically because the correctly-named file
+   still exists and still imports fine -- nothing errors, it's just
+   silently running old logic.
+
+**Working fix, adopted this session and now standard practice:** before
+presenting each file, state its exact intended repo destination path in
+its own standalone code block (e.g. `anllms/scientific/energy/
+dmi_measured.py`), immediately followed by that one file -- one
+path-then-file pair per file, not a batched list at the end. This gives
+a copy-pasteable, unambiguous exact filename immediately next to the
+file it belongs to. **Verification discipline that caught both failure
+modes above:** after any file delivery + manual move/rename, re-pull the
+repo fresh (or `git clone` for full history) and check (a) each file's
+exact byte content against what was generated, (b) no stray duplicate or
+misnamed files exist at the target directories or left at repo root, and
+(c) `git diff --stat` against the pre-session commit to confirm nothing
+outside the intended file set was touched -- catches accidental deletions
+elsewhere, not just naming problems in the intended files.
+
 ## The Feed Library gap (closed, for MP supply)
 
 `feed_library/ingredient.py`, `ration.py`, `rup_supply.py`,
-`microbial_substrate.py`, and `_feed_data.py` now exist.
-`ingredient.py`/`ration.py` are wired into the chat tool via
-`Ration.guelph_base_diet()` (a fallback diet -- `nasem_dairy`'s own
-built-in demo ration, NOT a NASEM book example -- used automatically
-when a chat query doesn't specify a real ration, with an explicit
-warning inserted into the report). **Note:** `evaluate_diet` deliberately
-does NOT use this fallback -- it requires a real ration and errors
-otherwise, since a specialist evaluating an actual client ration should
-never silently receive placeholder-diet numbers.
+`microbial_substrate.py`, and `_feed_data.py` exist. `ingredient.py`/
+`ration.py` are wired into the chat tool via `Ration.guelph_base_diet()`
+(a fallback diet -- `nasem_dairy`'s own built-in demo ration, NOT a
+NASEM book example -- used automatically when a chat query doesn't
+specify a real ration, with an explicit warning inserted into the
+report). **Note:** `evaluate_diet` deliberately does NOT use this
+fallback -- it requires a real ration and errors otherwise, since a
+specialist evaluating an actual client ration should never silently
+receive placeholder-diet numbers.
 
-`protein/total_mp_supply.py` now sources BOTH halves of total MP supply
-independently -- RUP-derived (via `rup_supply.py`) and, as of this
-session (Sept 2026), microbial-derived (via the new
-`microbial_substrate.py` feeding
-the unchanged, already-cited `MicrobialCrudeProteinNASEM2021` /
-`MicrobialMPSupplyNASEM2021`). Neither half requires a full
-`nd.nasem()` model run anymore. `animal`/`milk` parameters on
-`TotalMPSupplyNASEM2021.calculate()` are now optional (kept only for
-call-signature backward compatibility with `requirements_report.py`) --
-the independent path never touches either. `model_output`, if a caller
-happens to have one (e.g. `requirements_report.py`, which runs one
-anyway for other requirement/supply figures), is now used ONLY as an
-optional cross-check surfaced in `inputs_used` -- it no longer supplies
-the returned value. This closes the scope gap this document previously
-tracked as "Mapping those is the natural way to close this remaining
-half" -- see "Known Open Items" below for the one remaining supply-side
-gap (mineral/vitamin supply).
+`protein/total_mp_supply.py` sources BOTH halves of total MP supply
+independently -- RUP-derived (via `rup_supply.py`) and microbial-derived
+(via `microbial_substrate.py` feeding the unchanged, already-cited
+`MicrobialCrudeProteinNASEM2021` / `MicrobialMPSupplyNASEM2021`).
+Neither half requires a full `nd.nasem()` model run anymore.
+`animal`/`milk` parameters on `TotalMPSupplyNASEM2021.calculate()` are
+optional (kept only for call-signature backward compatibility with
+`requirements_report.py`) -- the independent path never touches either.
+`model_output`, if a caller happens to have one (e.g.
+`requirements_report.py`, which runs one anyway for other
+requirement/supply figures), is used ONLY as an optional cross-check
+surfaced in `inputs_used` -- it no longer supplies the returned value.
 
 ## Known Open Items (tracked, to revisit)
 
@@ -220,39 +322,15 @@ These are confirmed gaps or uncertainties, each already flagged in the
 relevant equation's `known_discrepancies` field (where applicable),
 collected here as a single place to check what still needs follow-up.
 
-**DMI: needs an actual-vs-predicted mode decision (found Aug 2026,
-scheduled for a dedicated next session).** Every requirement/supply/
-balance calculation currently ALWAYS predicts DMI via the cited
-equations (Eq. 2-1 or diet-aware Eq. 2-2), even when the caller already
-knows the cow's actual measured intake. This surfaced concretely when
-`evaluate_diet` flagged an 11.3% "mismatch" on `nasem_dairy`'s own
-`lactating_cow_test` demo scenario -- turned out the demo itself is
-configured with `equation_selection['DMIn_eqn']=0`, meaning the
-reference software's own official behavior for that scenario is to use
-a directly-given target DMI and skip prediction entirely, not to
-predict and then compare. Our code has no equivalent mode yet.
-
-Expected real-world usage (per working discussion, Aug 2026): the
-onboarding nutrition specialist will have actual measured/estimated DMI
-for a client's cow in the large majority of cases (~95% estimated) and
-will want that value used directly, with prediction reserved for the
-minority of cases where no real number is available. This is NOT a
-small fix -- it's a mode decision that needs to be threaded consistently
-through `calculate_lactating_cow_requirements`, `evaluate_diet`, and
-(once built) every candidate-ration call `solve_diet` makes, plus a
-clear way of telling the end user which mode was used for any given
-number (measured vs. predicted) so the two are never presented as
-equivalent. `diet_request.py`'s `dmi_mode`/`known_dmi_kg` fields exist
-as placeholders for this but are not yet wired to any logic. Scheduled
-as a dedicated next-session focus, not something to bolt on
-incrementally.
+**DMI actual-vs-predicted mode -- RESOLVED this session.** See dedicated
+section above. No longer an open item.
 
 **Equation citations still needing a direct paginated-book read:** NONE
 remaining as of the citation-verification session. Iodine (Eq. 20-455)
-was the last item in this category and was resolved that session (see
-below) -- every equation citation in the codebase has now either been
-directly confirmed against a paginated book screenshot, or confirmed as
-having no separate numbered equation to find (see the next item).
+was the last item in this category and was resolved that session -- every
+equation citation in the codebase has now either been directly confirmed
+against a paginated book screenshot, or confirmed as having no separate
+numbered equation to find (see the next item).
 
 **Resolved in the citation-verification session (Aug 2026), confirmed by
 direct paginated-book screenshots provided by the user:**
@@ -285,11 +363,10 @@ direct paginated-book screenshots provided by the user:**
   `nasem_dairy`'s `calculate_Ur_K_m()` implements (0.2*BW when lactating,
   0.07*BW when dry). Per project decision, the platform follows the
   software's direction, citing NASEM's own stated precedence for exactly
-  this kind of conflict (Ch. 20, "Nutrient Supply Model" intro): *"Should
-  there be differences between the description of the model herein and
-  the actual model code written in R, the latter is more likely to be
-  correct... The R code was developed and verified over a 4-year period
-  and thus should generally be the more reliable source."* Documented in
+  this kind of conflict (Ch. 20, "Nutrient Supply Model" intro): the book
+  states that where the book description and the R code disagree, the R
+  code -- developed and verified over a 4-year period -- should generally
+  be treated as the more reliable source. Documented in
   `known_discrepancies` (and therefore surfaced to end users via
   `explain()`), not silently resolved either way. A second, clearer
   paginated read of that specific table cell would still be useful
@@ -303,32 +380,22 @@ that isn't there:**
   -- `Trg_Mlk_NP_g = MilkProd x TPp / 100`. Directly searched Chapter 6
   and the Chapter 20 appendix around Equations 20-208 through 20-214
   (the EAA-based predictive milk protein equations) and ruled those out.
-  That session's change: the file's `known_discrepancies` previously said
-  to "treat as unresolved... until someone checks directly against a
-  paginated copy" -- that check already happened, so the wording now
-  states the absence as CONFIRMED, not open.
 - **Microbial MP supply conversion** (`protein/microbial_mp_supply.py`)
   -- the 80% x 82.4% MCP-to-MP step. Chapter 6 narrative states the
   coefficients explicitly; the appendix jumps from Eq. 20-79 to Eq. 20-80
-  without a numbered display equation for this specific step. This file's
-  wording was already accurate and needed no change that session.
+  without a numbered display equation for this specific step.
 
 **`SoftwareReference` docstring inconsistency -- RESOLVED.** The
 docstring previously claimed the reference software "is NEVER called at
 runtime," which contradicted actual behavior (every equation's
 `calculate()` does call the real `nasem_dairy` function at runtime -- the
 "wrap, don't reimplement" principle this whole project is built around).
-Also user-facing, not just internal: the `role` field's old default text
-("Cross-validation / equation-mapping reference only. Not used at
-runtime.") is rendered directly in `explain()` output for all 91 equation
-files (none override the default), so end users were being told this
-claim directly. Fixed: docstring rewritten to describe the actual
-three-part role (mapping/citation, cross-validation testing, AND the
-actual runtime call), `role` default corrected, and the `explain()`
-label changed from "Cross-validated against:" to "Implementation
-source:". Reproducibility is achieved via pinning
-`version_used_for_mapping` to a fixed `nasem_dairy` release, not by
-avoiding runtime calls.
+Fixed: docstring rewritten to describe the actual three-part role
+(mapping/citation, cross-validation testing, AND the actual runtime
+call), `role` default corrected, and the `explain()` label changed from
+"Cross-validated against:" to "Implementation source:". Reproducibility
+is achieved via pinning `version_used_for_mapping` to a fixed
+`nasem_dairy` release, not by avoiding runtime calls.
 
 **Frame/body reserve growth** (Frm/Rsrv terms for both MP and NEL) --
 still not built (deferred, not independently cited); documentation
@@ -349,29 +416,21 @@ actually enters scope, rather than build speculatively now.
 **Dry-cow scenarios -- guard in place.** `requirements_report.py` only
 implements lactating-cow DMI equations (Eq. 2-1 / Eq. 2-2); the
 reference software's separate dry-cow DMI equations
-(`Dt_DMIn_DryCow1/2`) are not mapped in this codebase. This was already
-documented at the individual-equation level
-(`energy/dmi_lactating.py`'s `applicability` field), but nothing
-enforced it at the orchestration layer -- a `milk.yield_kg <= 0` scenario
-would have silently run the wrong DMI equation, and every downstream
-requirement/supply/balance figure would have inherited that error with
-no warning surfaced. `build_requirements_report()` raises a clear
-`ValueError` for `milk.yield_kg <= 0` instead, explaining why, rather
-than returning a plausible-looking but scientifically invalid report.
+(`Dt_DMIn_DryCow1/2`) are not mapped in this codebase. `build_
+requirements_report()` raises a clear `ValueError` for `milk.yield_kg <=
+0` instead of returning a plausible-looking but scientifically invalid
+report.
 
 **Mineral/vitamin supply equations** still extract their value from the
 shared full-model run rather than independently summing per-ingredient
 contributions via the Feed Library -- this is now the ONLY remaining
-supply-side gap of this kind. **RUP supply and microbial-supply inputs**
-no longer have this gap (see "The Feed Library gap" above) -- both
-halves of total MP supply are now independently computed, closing the
-gap this document previously tracked here as open (rumen-degradable-
-protein and rumen-digestion inputs are now independently mapped via
-`feed_library/microbial_substrate.py`, this session, Sept 2026).
+supply-side gap of this kind. RUP supply and microbial-supply inputs no
+longer have this gap -- both halves of total MP supply are independently
+computed.
 
-**Diet solver** -- design settled this session (`diet_request.py`,
-above); optimizer itself not yet built, blocked behind the DMI mode
-decision (also above).
+**Diet solver** -- design settled (`diet_request.py`, above); the DMI
+mode decision that was blocking it is now resolved (see above). Next
+planned piece of work.
 
 **Life-stage scope check:** before considering heifer, growing-
 lactating, or other new life-stage classes, confirmed the mature
@@ -384,21 +443,23 @@ confirmed they are NOT: those functions only branch on `Calf` vs.
 non-`Calf`, or on `Trg_MilkProd`/`An_Parity_rl` directly, so the
 hardcoded string is functionally inert in every case checked. No fix
 needed there. Recommendation: finish closing gaps in the current
-mature-lactating-cow scope (microbial-supply inputs, DMI mode, Frame/
-Reserve if ever needed) before adding new life-stage classes, rather
-than expanding breadth before depth.
+mature-lactating-cow scope (mineral/vitamin supply, Frame/Reserve if
+ever needed) before adding new life-stage classes, rather than expanding
+breadth before depth.
 
-## Deployment (see README.md for full current details)
+## Deployment
 
 **Current, live, and confirmed working (verified via Render MCP, Aug
 30):** Render (`anllms-chat` service, id `srv-da7jf5jbc2fs73d2bpa0`)
 running `chat/server.py`, which routes model calls through a self-hosted
-LiteLLM proxy (also on Render: `litellm:main-latest`, not Cloud Run --
-correcting an earlier assumption in this doc) rather than calling
-`api.anthropic.com` directly. Model selectable via the `ANLLMS_MODEL` env
-var; the `gemini-flash` alias currently points at a deprecated
-underlying model and needs a proxy-side fix -- Mistral aliases are a
-working temporary substitute.
+LiteLLM proxy (also on Render: `litellm:main-latest`, NOT Cloud Run)
+rather than calling `api.anthropic.com` directly. **Note: README.md
+still describes the proxy as being on Cloud Run as of this session --
+that correction has not yet been applied to README.md and remains an
+open documentation task**, separate from this file (which is correct).
+Model selectable via the `ANLLMS_MODEL` env var; the `gemini-flash`
+alias currently points at a deprecated underlying model and needs a
+proxy-side fix -- Mistral aliases are a working temporary substitute.
 
 **Aug 28 deploy failure, root-caused and confirmed already resolved:**
 the vitamin-filename bug (see "Critical bug found and fixed" above)
@@ -413,14 +474,6 @@ the next commit. No outstanding deploy issue as of this session.
 been removed from the repo. GitHub Codespaces remains useful for
 accessible (screen-reader-friendly) local dev/testing -- see below -- but
 is not the production deployment path.
-
-*(The detailed PythonAnywhere walkthrough, Codespaces accessibility
-notes, and serialization-fix history that previously lived in this
-section as several separate "Session update" entries have been folded
-into this summary and into `README.md`'s "Deployment history" section,
-to stop this document from accumulating superseded, contradictory status
-entries. If you need the original blow-by-blow debugging narrative for
-any of those sessions, it's in this file's git history.)*
 
 ### Accessible chat testing via Codespaces (screen-reader workflow)
 
