@@ -18,10 +18,12 @@ dependency tree, and that path was abandoned before ever going live (see
 - **Live URL:** https://anllms-chat.onrender.com
 - **Render service:** `anllms-chat` (service ID `srv-da7jf5jbc2fs73d2bpa0`),
   workspace `tea-d9mgsdjm8hqs73casv3g`
-- **Chat model calls route through a self-hosted LiteLLM proxy** on Cloud
-  Run (`https://litellm-proxy-700813965617.us-east1.run.app`), not
-  directly to `api.anthropic.com`. `chat/server.py` uses the `openai`
-  Python client pointed at that proxy's `base_url`.
+- **Chat model calls route through a self-hosted LiteLLM proxy**, also
+  running on Render (service `litellm:main-latest`), not directly to
+  `api.anthropic.com`. `chat/server.py` uses the `openai` Python client
+  pointed at that proxy's `base_url`. (The proxy's own Render URL isn't
+  recorded here yet -- see `LITELLM_BASE_URL` on the `anllms-chat`
+  service's Environment tab for the live value.)
 - **Env vars set on the Render service** (Render dashboard -> service ->
   Environment tab; there is no `render.yaml` in this repo, so these are
   configured there, not in code):
@@ -34,7 +36,7 @@ dependency tree, and that path was abandoned before ever going live (see
     (`models/gemini-2.0-flash`); if chat responses start failing, check
     which alias `ANLLMS_MODEL` is set to and consider switching to a
     Mistral alias as a temporary unblock. The permanent fix is on the
-    LiteLLM proxy's own Cloud Run config, outside this repo.
+    LiteLLM proxy's own Render config, outside this repo.
 
 ## Updating the live deployment
 
