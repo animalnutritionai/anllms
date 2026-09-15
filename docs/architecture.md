@@ -290,7 +290,7 @@ misnamed files exist at the target directories or left at repo root, and
 outside the intended file set was touched -- catches accidental deletions
 elsewhere, not just naming problems in the intended files.
 
-## The Feed Library gap (closed, for MP supply)
+## The Feed Library gap (closed, for MP, mineral, and vitamin supply)
 
 `feed_library/ingredient.py`, `ration.py`, `rup_supply.py`,
 `microbial_substrate.py`, and `_feed_data.py` exist. `ingredient.py`/
@@ -421,12 +421,15 @@ requirements_report()` raises a clear `ValueError` for `milk.yield_kg <=
 0` instead of returning a plausible-looking but scientifically invalid
 report.
 
-**Mineral/vitamin supply equations** still extract their value from the
-shared full-model run rather than independently summing per-ingredient
-contributions via the Feed Library -- this is now the ONLY remaining
-supply-side gap of this kind. RUP supply and microbial-supply inputs no
-longer have this gap -- both halves of total MP supply are independently
-computed.
+**Mineral/vitamin supply equations (closed).** All 14 mineral + 3
+vitamin supply values are now independently summed from the real
+per-feed Feed Library pipeline (`feed_library/mineral_vitamin_supply.py`),
+the same pattern as RUP/microbial MP supply -- verified to `rel_tol=1e-6`
+against a full `nd.nasem()` run on `lactating_cow_test`. Magnesium
+absorption's dietary-K inhibition (`Dt_acMg`) is handled via the real
+`nasem_dairy` diet-level chain, not a per-feed simplification. No
+supply-side "extracted from shared model run" gaps remain in this
+codebase.
 
 **Diet solver** -- design settled (`diet_request.py`, above); the DMI
 mode decision that was blocking it is now resolved (see above). Next
