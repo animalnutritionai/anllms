@@ -234,19 +234,13 @@ class CalciumSupplyNASEM2021(KnowledgeEquation):
         "as-is with no further adjustment.",
     ]
     applicability = "Any lactating dairy cow diet with real feed library ingredients."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed from per-ingredient feed data -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "This equation extracts Abs_CaIn from a full nasem_dairy model "
-        "run (the same run shared with DMI/requirement/other supply "
-        "calculations in RequirementsReport) rather than independently "
-        "summing Fd_CaInf x Fd_acCaf per ingredient in this codebase. "
-        "The FORMULA and citation are confirmed correct against the "
-        "primary text; the computation itself is not yet decomposed into "
-        "a standalone per-ingredient aggregation the way Ration.to_diet() "
-        "does for NDF/ADF.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_CaIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Abs_CaIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_CaIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Abs_CaIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

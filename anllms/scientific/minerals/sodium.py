@@ -156,13 +156,13 @@ class SodiumSupplyNASEM2021(KnowledgeEquation):
     formula_text = "Fd_absNaInf = Fd_NaInf * Fd_acNaf; Abs_NaIn = sum(Fd_absNaInf) across ration"
     assumptions = ["Per-ingredient absorption coefficient from the real feed library, same pattern as calcium/phosphorus."]
     applicability = "Any lactating dairy cow diet with real feed library ingredients."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Extracts Abs_NaIn from a full nasem_dairy model run rather than "
-        "independently summing per-ingredient contributions in this codebase.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_NaIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Abs_NaIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_NaIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Abs_NaIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

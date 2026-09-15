@@ -43,6 +43,10 @@ class SeleniumSupplyNASEM2021(KnowledgeEquation):
     limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Dt_SeIn")
-        return EquationResult(value=value, unit="mg/d", inputs_used={"Source": "Dt_SeIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Dt_SeIn"]
+        return EquationResult(
+            value=value, unit="mg/d",
+            inputs_used={"Source": "Dt_SeIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

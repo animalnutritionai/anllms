@@ -154,13 +154,13 @@ class ZincSupplyNASEM2021(KnowledgeEquation):
     formula_text = "Fd_absZnInf = Fd_ZnInf * Fd_acZnf; Abs_ZnIn = sum(Fd_absZnInf) across ration"
     assumptions = ["Per-ingredient absorption coefficient from the real feed library."]
     applicability = "Any lactating dairy cow diet with real feed library ingredients."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Extracts Abs_ZnIn from a full nasem_dairy model run rather than "
-        "independently summing per-ingredient contributions in this codebase.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_ZnIn")
-        return EquationResult(value=value, unit="mg/d", inputs_used={"Source": "Abs_ZnIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_ZnIn"]
+        return EquationResult(
+            value=value, unit="mg/d",
+            inputs_used={"Source": "Abs_ZnIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

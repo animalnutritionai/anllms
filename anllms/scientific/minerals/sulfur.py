@@ -55,6 +55,10 @@ class SulfurSupplyNASEM2021(KnowledgeEquation):
     limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Dt_SIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Dt_SIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Dt_SIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Dt_SIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

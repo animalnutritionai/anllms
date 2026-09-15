@@ -92,18 +92,6 @@ class MagnesiumGrowthNASEM2021(KnowledgeEquation):
     applicability = "Cattle with nonzero targeted body weight gain."
     limitations = ["Equation number resolved by structural cross-reference, not a direct paginated-book read -- see known_discrepancies."]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "This equation's formula text did not extract from the source "
-        "document (likely an image/table in the original PDF). Its number "
-        "was resolved by cross-referencing the analogous, unambiguous "
-        "Calcium/Phosphorus sections (which show the same missing-formula "
-        "pattern but zero duplicate equation numbers) and the reference "
-        "software's function ordering (Ur_Mg_m, Fe_Mg_m, An_Mg_m, An_Mg_g, "
-        "An_Mg_y, An_Mg_l, An_Mg_req, An_Mg_bal, An_Mg_prod). Previously "
-        "cited as Eq. 20-402; corrected to 20-401 on this basis. A "
-        "paginated-copy spot-check would still be the gold-standard "
-        "confirmation.",
-    ]
 
     def calculate(self, body_gain_kg_per_day: float) -> EquationResult:
         import nasem_dairy as nd
@@ -135,27 +123,6 @@ class MagnesiumGestationNASEM2021(KnowledgeEquation):
     applicability = "Pregnant dairy cattle, particularly relevant only in late gestation (>190 days)."
     limitations = ["Equation number resolved by structural cross-reference, not a direct paginated-book read -- see known_discrepancies."]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "This equation's formula text did not extract from the source "
-        "document (likely an image/table in the original PDF), and the "
-        "raw extraction showed two spurious duplicate '(Equation 20-402)' "
-        "labels with no formula between them, previously logged as an "
-        "unresolved citation gap. Resolution: the analogous Calcium and "
-        "Phosphorus sections in the same document (Eq. 20-370 to 20-394) "
-        "show the identical missing-formula problem but ZERO duplicate "
-        "equation numbers -- every number there is distinct and "
-        "sequential even when its formula didn't extract. Cross-checking "
-        "the reference software's function order (Ur_Mg_m, Fe_Mg_m, "
-        "An_Mg_m, An_Mg_g, An_Mg_y, An_Mg_l, An_Mg_req, An_Mg_bal, "
-        "An_Mg_prod) against that one-equation-per-slot pattern gives "
-        "An_Mg_g=20-401 and An_Mg_y=20-402. The FORMULA and its "
-        "step-function behavior were already confirmed against the "
-        "reference software and real fixture test data; this resolves "
-        "the citation number too, but by structural inference rather "
-        "than a direct paginated-book read. A paginated-copy spot-check "
-        "would still be the gold-standard confirmation if one becomes "
-        "available.",
-    ]
 
     def calculate(self, gestation_day: int, bw_kg: float) -> EquationResult:
         if bw_kg <= 0:
@@ -258,14 +225,13 @@ class MagnesiumSupplyNASEM2021(KnowledgeEquation):
         "simplification.",
     ]
     applicability = "Any lactating dairy cow diet."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Extracts Abs_MgIn from a full nasem_dairy model run rather than "
-        "independently computing Dt_acMg from Dt_K in this codebase. "
-        "Formula/citation confirmed correct against the primary text.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_MgIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Abs_MgIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_MgIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Abs_MgIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

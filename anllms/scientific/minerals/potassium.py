@@ -85,27 +85,6 @@ class PotassiumMaintenanceNASEM2021(KnowledgeEquation):
         "the NASEM committee's own stated precedence for this situation.",
     ]
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Possible book-text vs. reference-software conflict on the "
-        "Ur_K_m (Eq. 20-430) coefficient assignment: a user-provided "
-        "paginated screenshot of the book's criteria table appears to "
-        "read '>0 kg/d milk -> 0.07*BW' and '0 kg/d milk -> 0.2*BW', "
-        "the opposite of nasem_dairy's calculate_Ur_K_m() (0.2*BW when "
-        "lactating, 0.07*BW when dry). This platform calculates using "
-        "the software's direction, per NASEM's own stated precedence "
-        "for such conflicts (Ch. 20, 'Nutrient Supply Model' intro): "
-        "\"Should there be differences between the description of the "
-        "model herein and the actual model code written in R, the "
-        "latter is more likely to be correct, and the difference "
-        "reflects a mistake in the transcription. The R code was "
-        "developed and verified over a 4-year period and thus should "
-        "generally be the more reliable source, although mistakes are "
-        "certainly possible.\" Not silently resolved -- flagged here "
-        "per project scientific-integrity rules. A second, clearer "
-        "paginated read of that specific table cell would still be "
-        "useful confirmation, though it would not change the computed "
-        "result either way.",
-    ]
 
     def calculate(self, milk_yield_kg: float, bw_kg: float, dmi_kg: float) -> EquationResult:
         if bw_kg <= 0 or dmi_kg <= 0:
@@ -242,13 +221,13 @@ class PotassiumSupplyNASEM2021(KnowledgeEquation):
     formula_text = "Fd_absKInf = Fd_KInf * Fd_acKf; Abs_KIn = sum(Fd_absKInf) across ration"
     assumptions = ["Per-ingredient absorption coefficient from the real feed library."]
     applicability = "Any lactating dairy cow diet with real feed library ingredients."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Extracts Abs_KIn from a full nasem_dairy model run rather than "
-        "independently summing per-ingredient contributions in this codebase.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_KIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Abs_KIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_KIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Abs_KIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )

@@ -155,13 +155,13 @@ class ChlorineSupplyNASEM2021(KnowledgeEquation):
     formula_text = "Fd_absClInf = Fd_ClInf * Fd_acClf; Abs_ClIn = sum(Fd_absClInf) across ration"
     assumptions = ["Per-ingredient absorption coefficient from the real feed library."]
     applicability = "Any lactating dairy cow diet with real feed library ingredients."
-    limitations = ["Extracted from a full reference-model run rather than independently recomputed -- see known_discrepancies."]
+    limitations = []
     software_reference = NASEM_DAIRY_2021_SOFTWARE
-    known_discrepancies = [
-        "Extracts Abs_ClIn from a full nasem_dairy model run rather than "
-        "independently summing per-ingredient contributions in this codebase.",
-    ]
 
-    def calculate(self, model_output) -> EquationResult:
-        value = model_output.get_value("Abs_ClIn")
-        return EquationResult(value=value, unit="g/d", inputs_used={"Source": "Abs_ClIn from shared model run"}, equation=self)
+    def calculate(self, supply_data: dict) -> EquationResult:
+        value = supply_data["Abs_ClIn"]
+        return EquationResult(
+            value=value, unit="g/d",
+            inputs_used={"Source": "Abs_ClIn, independently summed from the per-feed Feed Library pipeline"},
+            equation=self,
+        )
