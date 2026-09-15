@@ -25,12 +25,15 @@ WHAT THIS DOES:
      against the official total.
   4. Computes energy and MP supply via independently-cited equations
      (TotalEnergySupplyNASEM2021, TotalMPSupplyNASEM2021).
-  5. Computes ALL 13 mineral and all 3 vitamin REQUIREMENTS via our own
+  5. Computes ALL 14 mineral and all 3 vitamin REQUIREMENTS via our own
      cited equations, and their SUPPLY via independently-cited supply
-     equations (e.g. CalciumSupplyNASEM2021, Eq. 20-370/20-371) -- both
-     sides of the balance are now independently cited, not just the
-     requirement side. Balance = supply - requirement, composed by this
-     codebase from two cited numbers, the same pattern as MP/NEL balance.
+     equations (e.g. CalciumSupplyNASEM2021, Eq. 20-370/20-371) --
+     independently SUMMED from the real per-feed Feed Library pipeline
+     (feed_library.mineral_vitamin_supply), not extracted from the
+     shared full-model run -- both sides of the balance are now fully
+     independently computed, not just independently cited. Balance =
+     supply - requirement, composed by this codebase from two cited
+     numbers, the same pattern as MP/NEL balance.
   6. Computes water requirement via our own cited equation (Eq. 9-1).
 
 WHAT THIS DELIBERATELY DOES NOT DO YET:
@@ -42,11 +45,6 @@ WHAT THIS DELIBERATELY DOES NOT DO YET:
     equations -- their contribution is reported (from the reference
     model) for reconciliation purposes, but not individually explainable
     via our own KnowledgeEquation objects yet.
-  - Mineral/vitamin supply equations extract their value from the shared
-    full-model run rather than independently re-summing per-ingredient
-    contributions in this codebase -- see each supply equation's own
-    known_discrepancies (same scope decision as RUP-derived MP supply
-    and total energy supply elsewhere in this codebase).
   - Does not optimize or recommend a diet. This is a reporting/explanation
     composition only.
 """
@@ -57,6 +55,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from anllms.knowledge.models import EquationResult
+from anllms.feed_library.mineral_vitamin_supply import compute_mineral_vitamin_supply
 from anllms.feed_library.ration import Ration
 from anllms.scientific.energy.dmi_lactating import DMIPredictionLactatingNASEM2021
 from anllms.scientific.energy.dmi_lactating_diet_aware import (
@@ -353,21 +352,18 @@ def build_requirements_report(
     )
     nel_balance = nel_supply_total.value - total_nel_official
 
-    # --- Minerals: our cited requirement AND supply equations, balance
-    # composed from both, same pattern as MP/NEL balance ---
-    mineral_results = compute_mineral_results(animal, milk, dmi_kg=dmi_result.value)
-    mineral_supplies = compute_mineral_supplies(model_output)
-    mineral_balances = compute_mineral_balances(mineral_results, mineral_supplies)
-    warnings.append(
-        "Mineral supply equations extract their value from the shared "
-        "full-model run rather than independently re-summing per-"
-        "ingredient contributions in this codebase -- see each supply "
-        "equation's known_discrepancies."
+    # --- Minerals & vitamins: supply independently summed from the real
+    # per-feed Feed Library pipeline (same pattern as RUP/microbial MP
+    # supply) -- no longer extracted from the shared full-model run. ---
+    mineral_vitamin_supply_data = compute_mineral_vitamin_supply(
+        ration=ration, dmi_kg=dmi_result.value,
     )
+    mineral_results = compute_mineral_results(animal, milk, dmi_kg=dmi_result.value)
+    mineral_supplies = compute_mineral_supplies(mineral_vitamin_supply_data)
+    mineral_balances = compute_mineral_balances(mineral_results, mineral_supplies)
 
-    # --- Vitamins: our cited requirement AND supply equations ---
     vitamin_results = compute_vitamin_results(animal, milk)
-    vitamin_supplies = compute_vitamin_supplies(model_output)
+    vitamin_supplies = compute_vitamin_supplies(mineral_vitamin_supply_data)
     vitamin_balances = compute_vitamin_balances(vitamin_results, vitamin_supplies)
 
     # --- Water: our cited requirement equation, diet inputs from the

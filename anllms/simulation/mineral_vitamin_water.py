@@ -16,11 +16,12 @@ already used for MP and NEL balance -- not pulled as a single pre-labeled
 field from the reference model. This closes the citation gap that
 existed in the earlier version of this file.
 
-Each supply equation still extracts its underlying value (Abs_CaIn, etc.)
-from the shared full-model run rather than independently re-summing
-per-ingredient contributions -- that remaining gap is documented in each
-equation's own known_discrepancies, consistent with how RUP-derived MP
-supply and total energy supply are handled elsewhere in this codebase.
+UPDATED: mineral/vitamin supply values are now independently summed from
+the real per-feed Feed Library pipeline (feed_library.mineral_vitamin_
+supply.compute_mineral_vitamin_supply()) rather than extracted from a
+full model run -- the same pattern already used for RUP-derived MP
+supply and microbial-derived MP supply. This closes the last remaining
+supply-side gap of this kind.
 """
 
 from __future__ import annotations
@@ -104,23 +105,29 @@ def compute_mineral_results(animal: AnimalState, milk: MilkTarget, dmi_kg: float
     }
 
 
-def compute_mineral_supplies(model_output) -> dict[str, EquationResult]:
-    """Compute all 13 mineral supplies using our own cited equation objects."""
+def compute_mineral_supplies(supply_data: dict) -> dict[str, EquationResult]:
+    """
+    Compute all 14 mineral supplies using our own cited equation objects.
+
+    supply_data comes from feed_library.mineral_vitamin_supply.
+    compute_mineral_vitamin_supply() -- independently summed from the
+    per-feed Feed Library pipeline, NOT extracted from a full model run.
+    """
     return {
-        "Ca": CalciumSupplyNASEM2021().calculate(model_output=model_output),
-        "P": PhosphorusSupplyNASEM2021().calculate(model_output=model_output),
-        "Mg": MagnesiumSupplyNASEM2021().calculate(model_output=model_output),
-        "Na": SodiumSupplyNASEM2021().calculate(model_output=model_output),
-        "Cl": ChlorineSupplyNASEM2021().calculate(model_output=model_output),
-        "K": PotassiumSupplyNASEM2021().calculate(model_output=model_output),
-        "S": SulfurSupplyNASEM2021().calculate(model_output=model_output),
-        "Co": CobaltSupplyNASEM2021().calculate(model_output=model_output),
-        "Cu": CopperSupplyNASEM2021().calculate(model_output=model_output),
-        "Fe": IronSupplyNASEM2021().calculate(model_output=model_output),
-        "Mn": ManganeseSupplyNASEM2021().calculate(model_output=model_output),
-        "Se": SeleniumSupplyNASEM2021().calculate(model_output=model_output),
-        "Zn": ZincSupplyNASEM2021().calculate(model_output=model_output),
-        "I": IodineSupplyNASEM2021().calculate(model_output=model_output),
+        "Ca": CalciumSupplyNASEM2021().calculate(supply_data=supply_data),
+        "P": PhosphorusSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Mg": MagnesiumSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Na": SodiumSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Cl": ChlorineSupplyNASEM2021().calculate(supply_data=supply_data),
+        "K": PotassiumSupplyNASEM2021().calculate(supply_data=supply_data),
+        "S": SulfurSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Co": CobaltSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Cu": CopperSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Fe": IronSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Mn": ManganeseSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Se": SeleniumSupplyNASEM2021().calculate(supply_data=supply_data),
+        "Zn": ZincSupplyNASEM2021().calculate(supply_data=supply_data),
+        "I": IodineSupplyNASEM2021().calculate(supply_data=supply_data),
     }
 
 
@@ -148,12 +155,18 @@ def compute_vitamin_results(animal: AnimalState, milk: MilkTarget) -> dict[str, 
     }
 
 
-def compute_vitamin_supplies(model_output) -> dict[str, EquationResult]:
-    """Compute vitamin A, D, E supplies using our own cited equation objects."""
+def compute_vitamin_supplies(supply_data: dict) -> dict[str, EquationResult]:
+    """
+    Compute vitamin A, D, E supplies using our own cited equation objects.
+
+    supply_data comes from feed_library.mineral_vitamin_supply.
+    compute_mineral_vitamin_supply() -- independently summed from the
+    per-feed Feed Library pipeline, NOT extracted from a full model run.
+    """
     return {
-        "A": VitaminASupplyNASEM2021().calculate(model_output=model_output),
-        "D": VitaminDSupplyNASEM2021().calculate(model_output=model_output),
-        "E": VitaminESupplyNASEM2021().calculate(model_output=model_output),
+        "A": VitaminASupplyNASEM2021().calculate(supply_data=supply_data),
+        "D": VitaminDSupplyNASEM2021().calculate(supply_data=supply_data),
+        "E": VitaminESupplyNASEM2021().calculate(supply_data=supply_data),
     }
 
 
