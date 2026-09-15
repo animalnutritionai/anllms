@@ -7,6 +7,7 @@ import math
 
 import pytest
 
+from anllms.feed_library.mineral_vitamin_supply import compute_mineral_vitamin_supply
 from anllms.feed_library.ration import Ration
 from anllms.simulation.animal_state import AnimalState, MilkTarget
 from anllms.simulation.mineral_vitamin_water import (
@@ -48,9 +49,9 @@ def test_compute_mineral_results_covers_all_13_minerals(typical_cow):
 
 def test_compute_mineral_balances_present_for_all_minerals(typical_cow):
     animal, milk, ration = typical_cow
-    model_output = run_full_model(animal, milk, ration, dmi_kg=22.0)
+    supply_data = compute_mineral_vitamin_supply(ration=ration, dmi_kg=22.0)
     requirements = compute_mineral_results(animal, milk, dmi_kg=22.0)
-    supplies = compute_mineral_supplies(model_output)
+    supplies = compute_mineral_supplies(supply_data)
     balances = compute_mineral_balances(requirements, supplies)
     assert set(balances.keys()) == ALL_MINERAL_SYMBOLS
 
