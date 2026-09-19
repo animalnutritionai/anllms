@@ -3,23 +3,104 @@
 <head>
 <meta charset="UTF-8">
 <title>anllms -- Dairy Nutrition Assistant</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 1.3rem; }
-  #chat { border: 1px solid #ccc; border-radius: 8px; height: 60vh; overflow-y: auto; padding: 1rem; margin-bottom: 1rem; }
-  .msg { margin-bottom: 0.9rem; white-space: pre-wrap; }
-  .user { color: #1a4; font-weight: 600; }
-  .assistant { color: #222; }
-  .assistant .label { font-weight: 600; color: #555; }
+  :root {
+    /* Deliberately a shade darker than pure CSS "forestgreen" (#228B22) --
+       that lighter shade only gets ~4.4:1 contrast with white text, just
+       under the 4.5:1 AA minimum. This shade gets white text to ~7.9:1. */
+    --bg: #1B5E20;
+    --text: #FFFFFF;
+    --text-muted: #C8C8C8;
+    --heading: #FFD700;
+    --subheading: #FFFFFF;
+    --link: #D1C4E9;
+    --border: #2E7D32;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+    max-width: 700px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  h1, h2 { color: var(--heading); }
+  h3 { color: var(--subheading); }
+  a { color: var(--link); }
+  p { color: var(--text); }
+  .muted { color: var(--text-muted); }
+
+  #chat {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 65vh;
+    overflow-y: auto;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background-color: rgba(0, 0, 0, 0.15);
+  }
+
+  article.exchange {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+  }
+  article.exchange:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+  .exchange h2 { font-size: 1.3rem; margin: 0.8rem 0 0.3rem; }
+  .exchange h3 { font-size: 1.15rem; margin: 0.6rem 0 0.3rem; }
+  .exchange > p, .response-body { margin: 0 0 0.5rem; white-space: pre-wrap; }
+  .response-body p:first-child { margin-top: 0; }
+  .response-body p:last-child { margin-bottom: 0; }
+
+  .actions { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .actions button {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .actions button:hover { background-color: rgba(255, 255, 255, 0.18); }
+  .actions button:focus-visible { outline: 2px solid var(--heading); outline-offset: 2px; }
+
   #inputRow { display: flex; gap: 0.5rem; }
-  #messageInput { flex: 1; padding: 0.6rem; font-size: 1rem; }
-  button { padding: 0.6rem 1.2rem; font-size: 1rem; }
-  #status { color: #888; font-size: 0.85rem; margin-top: 0.4rem; }
+  #messageInput {
+    flex: 1;
+    padding: 0.6rem;
+    font-size: 1rem;
+    background-color: #FFFFFF;
+    color: #111111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  #sendBtn {
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+    background-color: var(--heading);
+    color: var(--bg);
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #sendBtn:focus-visible, #messageInput:focus-visible {
+    outline: 2px solid var(--heading);
+    outline-offset: 2px;
+  }
+  #status { font-size: 0.85rem; margin-top: 0.4rem; }
 </style>
 </head>
 <body>
   <h1>Dairy Nutrition Assistant (lactating cows only)</h1>
-  <p style="color:#666; font-size:0.9rem;">
+  <p class="muted" style="font-size:0.9rem;">
     Built on the NASEM (2021) model. Every number this assistant gives you
     is backed by a real equation -- ask "why" and it will show its work.
   </p>
@@ -28,31 +109,119 @@
     <input id="messageInput" type="text" placeholder="Ask about a lactating cow's requirements..." autofocus>
     <button id="sendBtn">Send</button>
   </div>
-  <div id="status"></div>
+  <div id="status" class="muted"></div>
 
 <script>
 let history = [];
+let exchangeCount = 0;
 
 const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('messageInput');
 const statusEl = document.getElementById('status');
 const sendBtn = document.getElementById('sendBtn');
 
-function addMessage(role, text) {
-  const div = document.createElement('div');
-  div.className = 'msg ' + role;
-  div.innerHTML = (role === 'user' ? '<span class="user">You:</span> ' : '<span class="label">Assistant:</span> ') + text;
-  chatEl.appendChild(div);
+function renderMarkdown(text) {
+  if (window.marked && window.DOMPurify) {
+    const raw = marked.parse(text);
+    return DOMPurify.sanitize(raw);
+  }
+  // Fallback if the CDN libraries failed to load: escape and preserve line breaks
+  // rather than showing raw, unescaped text.
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
+}
+
+function makeCopyButton(getText, ariaLabel) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'Copy';
+  btn.setAttribute('aria-label', ariaLabel);
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(getText());
+      const original = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (e) {
+      btn.textContent = 'Copy failed';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    }
+  });
+  return btn;
+}
+
+function makePlaceholderButton(label, id) {
+  // Placeholder only -- no behavior wired up yet.
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = label;
+  btn.id = id;
+  btn.addEventListener('click', () => {
+    console.log(`${label} clicked (placeholder, no action wired up yet)`);
+  });
+  return btn;
+}
+
+function startExchange(userText) {
+  exchangeCount += 1;
+  const n = exchangeCount;
+
+  const article = document.createElement('article');
+  article.className = 'exchange';
+
+  const h2 = document.createElement('h2');
+  h2.textContent = `PROMPT ${n}.`;
+  article.appendChild(h2);
+
+  const promptP = document.createElement('p');
+  promptP.textContent = userText;
+  article.appendChild(promptP);
+
+  const promptActions = document.createElement('div');
+  promptActions.className = 'actions';
+  promptActions.appendChild(makeCopyButton(() => userText, `Copy prompt ${n}`));
+  promptActions.appendChild(makePlaceholderButton('Edit', `edit-prompt-${n}`));
+  article.appendChild(promptActions);
+
+  const h3 = document.createElement('h3');
+  h3.textContent = `RESPONSE ${n}.`;
+  article.appendChild(h3);
+
+  const responseBody = document.createElement('div');
+  responseBody.className = 'response-body muted';
+  responseBody.textContent = 'Thinking...';
+  article.appendChild(responseBody);
+
+  const responseActions = document.createElement('div');
+  responseActions.className = 'actions';
+  responseActions.appendChild(makeCopyButton(() => responseBody.dataset.raw || '', `Copy response ${n}`));
+  responseActions.appendChild(makePlaceholderButton('Good response', `good-response-${n}`));
+  responseActions.appendChild(makePlaceholderButton('Bad response', `bad-response-${n}`));
+  article.appendChild(responseActions);
+
+  chatEl.appendChild(article);
   chatEl.scrollTop = chatEl.scrollHeight;
+
+  return { responseBody };
+}
+
+function fillResponse(responseBody, assistantText) {
+  responseBody.classList.remove('muted');
+  responseBody.dataset.raw = assistantText;
+  responseBody.innerHTML = renderMarkdown(assistantText);
 }
 
 async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
-  addMessage('user', text);
   inputEl.value = '';
   sendBtn.disabled = true;
   statusEl.textContent = 'Thinking...';
+
+  const { responseBody } = startExchange(text);
 
   try {
     const resp = await fetch('/api/chat', {
@@ -62,13 +231,13 @@ async function sendMessage() {
     });
     const data = await resp.json();
     if (data.error) {
-      addMessage('assistant', 'Error: ' + data.error);
+      fillResponse(responseBody, `Error: ${data.error}`);
     } else {
-      addMessage('assistant', data.reply);
+      fillResponse(responseBody, data.reply);
       history = data.history;
     }
   } catch (e) {
-    addMessage('assistant', 'Error contacting server: ' + e);
+    fillResponse(responseBody, `Error contacting server: ${e}`);
   } finally {
     statusEl.textContent = '';
     sendBtn.disabled = false;
