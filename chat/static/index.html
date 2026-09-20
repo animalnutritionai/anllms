@@ -38,9 +38,6 @@
   p { color: var(--text); }
   .muted { color: var(--text-muted); }
 
-  /* Standard "skip link" pattern: off-screen until focused, then jumps
-     into view at the top-left so a keyboard/screen-reader user can
-     bypass the (potentially long) conversation log in one keystroke. */
   .skip-link {
     position: absolute;
     left: -9999px;
@@ -82,11 +79,7 @@
     padding: 0.5rem 0.9rem;
     font-size: 0.85rem;
     font-weight: 600;
-    text-transform: uppercase; /* visual only -- screen readers read the
-                                   actual text content, not the CSS
-                                   transform, so this doesn't affect
-                                   pronunciation the way literal caps in
-                                   the HTML sometimes can. */
+    text-transform: uppercase;
     letter-spacing: 0.03em;
     cursor: pointer;
   }
@@ -133,17 +126,14 @@
   }
   .actions button:hover { background-color: rgba(255, 255, 255, 0.18); }
   .actions button:focus-visible { outline: 2px solid var(--heading); outline-offset: 2px; }
+  .actions button:disabled { opacity: 0.5; cursor: default; }
 
-  #composer {
-    margin-top: 0.5rem;
-  }
+  #composer { margin-top: 0.5rem; }
   #inputRow { display: flex; gap: 0.5rem; }
   #messageInput {
     flex: 1;
     padding: 0.6rem;
-    /* Must stay >= 16px -- below that, Safari on iOS auto-zooms on focus
-       regardless of the viewport meta tag above. */
-    font-size: 16px;
+    font-size: 16px; /* must stay >= 16px to avoid Safari's focus-zoom */
     background-color: #FFFFFF;
     color: #111111;
     border: 1px solid var(--border);
@@ -159,6 +149,7 @@
     font-weight: 600;
     cursor: pointer;
   }
+  #sendBtn:disabled { opacity: 0.6; cursor: default; }
   #sendBtn:focus-visible, #messageInput:focus-visible {
     outline: 2px solid var(--heading);
     outline-offset: 2px;
@@ -169,10 +160,6 @@
 <body>
   <a href="#messageInput" class="skip-link">Skip to message composer</a>
 
-  <!-- Direct child of <body>, not nested in <main>/<article>/etc., so
-       this automatically exposes the "banner" landmark -- a single
-       global action button belongs here, not in <nav> (which is for
-       sets of navigational links, not one control). -->
   <header>
     <h1>Dairy Nutrition Assistant (lactating cows only)</h1>
     <p class="muted" style="font-size:0.9rem;">
@@ -182,47 +169,33 @@
     <button id="newConversationBtn" type="button">New Conversation</button>
   </header>
 
-  <!-- <main> holds the page's actual content: the conversation itself.
-       The composer lives outside it, in its own <form> below, since it's
-       a control for producing content rather than content in itself. -->
   <main aria-label="Conversation">
-    <!-- role="log" + aria-relevant="additions": only newly-added nodes
-         get announced, never the whole history re-read. aria-atomic on
-         each section means a whole exchange is announced as one coherent
-         unit once inserted -- and an inserted response subtree is never
-         mutated again afterward. -->
     <div id="chat" role="log" aria-live="polite" aria-relevant="additions"></div>
   </main>
 
-  <!-- A real <form> (not <footer> -- footer implies closing/meta content,
-       not the primary means of interacting with the app). The aria-label
-       makes it a "form" landmark, letting AT users jump straight here
-       without tabbing through the whole conversation log first. Native
-       <form> submission also means the iOS keyboard's "Go"/"Send" return
-       key works correctly without a separate keydown handler. -->
   <form id="composer" aria-label="Send a message">
     <label for="messageInput" class="visually-hidden">Message</label>
     <div id="inputRow">
       <input id="messageInput" type="text" placeholder="Ask about a lactating cow's requirements..." autofocus>
       <button id="sendBtn" type="submit">Send</button>
     </div>
-    <!-- Separate, transient status channel (e.g. "Thinking...") -- distinct
-         from the #chat log so a fleeting status message never becomes part
-         of the permanent conversation history that gets read back later. -->
     <div id="status" class="muted" role="status" aria-live="polite"></div>
   </form>
 
 <script>
 const STORAGE_KEY = 'anllms_conversation_v1';
 
-let history = [];       // conversation context sent to the backend API
-let exchanges = [];     // {prompt, response} pairs, for persistence/rebuild
+let history = [];        // conversation context sent to the backend API
+let exchanges = [];      // {prompt, response, historyLengthBefore} per exchange
 let exchangeCount = 0;
+let latestSection = null; // the one <section> that currently holds Retry
+let latestN = 0;
 
 const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('messageInput');
 const statusEl = document.getElementById('status');
 const composerEl = document.getElementById('composer');
+const sendBtn = document.getElementById('sendBtn');
 const newConversationBtn = document.getElementById('newConversationBtn');
 
 function renderMarkdown(text) {
@@ -231,17 +204,12 @@ function renderMarkdown(text) {
     const raw = marked.parse(text);
     html = DOMPurify.sanitize(raw);
   } else {
-    // Fallback if the CDN libraries failed to load: escape and preserve
-    // line breaks rather than showing raw, unescaped text.
     const escaped = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     html = `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
   }
-  // Collapse whitespace sitting between tags (e.g. the newline marked.js
-  // puts between "</p>" and the next "<p>") so it doesn't become a stray
-  // empty text node between paragraphs when parsed into the DOM.
   return html.replace(/>\s+</g, '><');
 }
 
@@ -265,7 +233,6 @@ function makeCopyButton(getText, ariaLabel) {
 }
 
 function makePlaceholderButton(label, id) {
-  // Placeholder only -- no behavior wired up yet.
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = label;
@@ -276,11 +243,16 @@ function makePlaceholderButton(label, id) {
   return btn;
 }
 
-// Builds and appends the prompt half of an exchange immediately. This
-// half is never mutated again after insertion. The <section> gets its
-// own aria-label ("Exchange N"), which also makes it a named landmark
-// region -- so a braille display/VoiceOver rotor can jump straight to
-// "Exchange 7" instead of scrolling through everything to find it.
+function setBusy(isBusy) {
+  sendBtn.disabled = isBusy;
+  if (latestSection) {
+    const retryBtn = latestSection.querySelector('.retry-btn');
+    if (retryBtn) retryBtn.disabled = isBusy;
+  }
+}
+
+// Builds and appends the prompt half of an exchange immediately. Never
+// mutated again after insertion.
 function addPrompt(userText) {
   exchangeCount += 1;
   const n = exchangeCount;
@@ -311,28 +283,52 @@ function addPrompt(userText) {
   return { section, n };
 }
 
-// Builds the entire response half (heading, body, actions) off-DOM as one
-// fragment, then appends it in a single operation once the real text is
-// ready. Nothing here is created early and mutated later.
-function addResponse(section, n, assistantText) {
-  const fragment = document.createDocumentFragment();
-
+// Builds the response nodes (heading, body, actions) for one exchange.
+// isLatest controls whether a Retry button is included -- only the
+// current latest exchange should ever have one.
+function buildResponseNodes(n, assistantText, isLatest) {
   const h3 = document.createElement('h3');
+  h3.className = 'response-heading';
   h3.textContent = `RESPONSE ${n}.`;
-  fragment.appendChild(h3);
 
   const responseBody = document.createElement('div');
   responseBody.className = 'response-body';
   responseBody.innerHTML = renderMarkdown(assistantText);
-  fragment.appendChild(responseBody);
 
   const responseActions = document.createElement('div');
-  responseActions.className = 'actions';
+  responseActions.className = 'actions response-actions';
   responseActions.appendChild(makeCopyButton(() => assistantText, `Copy response ${n}`));
   responseActions.appendChild(makePlaceholderButton('Good response', `good-response-${n}`));
   responseActions.appendChild(makePlaceholderButton('Bad response', `bad-response-${n}`));
-  fragment.appendChild(responseActions);
 
+  if (isLatest) {
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'retry-btn';
+    retryBtn.textContent = 'Retry';
+    retryBtn.setAttribute('aria-label', `Retry response ${n}`);
+    retryBtn.addEventListener('click', retryLatestResponse);
+    responseActions.appendChild(retryBtn);
+  }
+
+  return { h3, responseBody, responseActions };
+}
+
+// (Re)renders the response half of a section. On first render this just
+// appends; on retry it first removes the previous response nodes from
+// this same section, then appends fresh ones -- an intentional, in-place
+// replacement of already-inserted content, which is exactly what
+// aria-atomic on the section is for: announcing genuinely new content
+// that has replaced old content, in response to an explicit user action.
+function renderResponse(section, n, assistantText, isLatest) {
+  section.querySelectorAll('.response-heading, .response-body, .response-actions')
+    .forEach((el) => el.remove());
+
+  const { h3, responseBody, responseActions } = buildResponseNodes(n, assistantText, isLatest);
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(h3);
+  fragment.appendChild(responseBody);
+  fragment.appendChild(responseActions);
   section.appendChild(fragment);
   chatEl.scrollTop = chatEl.scrollHeight;
 }
@@ -341,9 +337,7 @@ function saveConversation() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ apiHistory: history, exchanges: exchanges }));
   } catch (e) {
-    // localStorage unavailable or full -- chat still works for this
-    // session, it just won't survive a refresh. Not worth surfacing to
-    // the user as an error.
+    // localStorage unavailable or full -- chat still works this session.
   }
 }
 
@@ -356,16 +350,19 @@ function restoreConversation() {
   }
   if (!saved || !Array.isArray(saved.exchanges) || saved.exchanges.length === 0) return;
 
-  // Detach the live region while bulk-restoring so the whole restored
-  // history isn't announced at once on page load -- only genuinely new
-  // messages sent during this session should trigger an announcement.
   chatEl.removeAttribute('aria-live');
   chatEl.removeAttribute('role');
 
   history = saved.apiHistory || [];
-  saved.exchanges.forEach((ex) => {
+  const lastIndex = saved.exchanges.length - 1;
+  saved.exchanges.forEach((ex, i) => {
     const { section, n } = addPrompt(ex.prompt);
-    addResponse(section, n, ex.response);
+    const isLatest = i === lastIndex;
+    renderResponse(section, n, ex.response, isLatest);
+    if (isLatest) {
+      latestSection = section;
+      latestN = n;
+    }
   });
   exchanges = saved.exchanges;
 
@@ -381,6 +378,8 @@ function newConversation() {
   history = [];
   exchanges = [];
   exchangeCount = 0;
+  latestSection = null;
+  latestN = 0;
   try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
   statusEl.textContent = '';
   inputEl.focus();
@@ -390,11 +389,18 @@ async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
   inputEl.value = '';
-  const sendBtn = document.getElementById('sendBtn');
-  sendBtn.disabled = true;
+  setBusy(true);
   statusEl.textContent = 'Thinking...';
 
+  // Demote the previous latest response's Retry button -- only the
+  // newest exchange should ever offer it.
+  if (latestSection) {
+    const oldRetry = latestSection.querySelector('.retry-btn');
+    if (oldRetry) oldRetry.remove();
+  }
+
   const { section, n } = addPrompt(text);
+  const historyLengthBefore = history.length;
   let assistantText;
 
   try {
@@ -414,13 +420,57 @@ async function sendMessage() {
     assistantText = `Error contacting server: ${e}`;
   }
 
-  addResponse(section, n, assistantText);
-  exchanges.push({ prompt: text, response: assistantText });
+  renderResponse(section, n, assistantText, true);
+  exchanges.push({ prompt: text, response: assistantText, historyLengthBefore });
+  latestSection = section;
+  latestN = n;
   saveConversation();
 
   statusEl.textContent = '';
-  sendBtn.disabled = false;
+  setBusy(false);
   inputEl.focus();
+}
+
+// Retries only ever the latest exchange. The server's returned "history"
+// is always the prior history plus this turn's new messages appended
+// (never rewritten) -- possibly several messages if tools were called,
+// not just one prompt/reply pair. So rather than guess how many messages
+// to strip off, we replay the exact prefix length recorded before this
+// exchange was first sent, sliced from the current cumulative history.
+async function retryLatestResponse() {
+  if (!latestSection || exchanges.length === 0) return;
+  const idx = exchanges.length - 1;
+  const entry = exchanges[idx];
+
+  setBusy(true);
+  statusEl.textContent = 'Retrying...';
+
+  const historyForRetry = history.slice(0, entry.historyLengthBefore);
+  let assistantText;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: entry.prompt, history: historyForRetry })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      assistantText = `Error: ${data.error}`;
+    } else {
+      assistantText = data.reply;
+      history = data.history; // replaces the tail from historyLengthBefore on
+    }
+  } catch (e) {
+    assistantText = `Error contacting server: ${e}`;
+  }
+
+  renderResponse(latestSection, latestN, assistantText, true);
+  exchanges[idx] = { prompt: entry.prompt, response: assistantText, historyLengthBefore: entry.historyLengthBefore };
+  saveConversation();
+
+  statusEl.textContent = '';
+  setBusy(false);
 }
 
 composerEl.addEventListener('submit', (e) => {
