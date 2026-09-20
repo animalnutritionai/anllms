@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- width=device-width + initial-scale=1 fixes the Safari focus-zoom bug.
+     Deliberately NOT using maximum-scale=1 / user-scalable=no -- those
+     "fix" the same bug by disabling pinch-zoom entirely, which harms
+     low-vision users. This fixes the actual cause instead. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>anllms -- Dairy Nutrition Assistant</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
@@ -33,6 +38,31 @@
   p { color: var(--text); }
   .muted { color: var(--text-muted); }
 
+  #newConversationBtn {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10;
+    background-color: var(--heading);
+    color: var(--bg);
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase; /* visual only -- screen readers read the
+                                   actual text content, not the CSS
+                                   transform, so this doesn't affect
+                                   pronunciation the way literal caps in
+                                   the HTML sometimes can. */
+    letter-spacing: 0.03em;
+    cursor: pointer;
+  }
+  #newConversationBtn:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
   #chat {
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -54,7 +84,8 @@
   }
   .exchange h2 { font-size: 1.3rem; margin: 0.8rem 0 0.3rem; }
   .exchange h3 { font-size: 1.15rem; margin: 0.6rem 0 0.3rem; }
-  .exchange > p, .response-body { margin: 0 0 0.5rem; white-space: pre-wrap; }
+  .exchange > p.prompt-text { margin: 0 0 0.5rem; white-space: pre-wrap; }
+  .response-body { margin: 0 0 0.5rem; }
   .response-body p:first-child { margin-top: 0; }
   .response-body p:last-child { margin-bottom: 0; }
 
@@ -75,7 +106,9 @@
   #messageInput {
     flex: 1;
     padding: 0.6rem;
-    font-size: 1rem;
+    /* Must stay >= 16px -- below that, Safari on iOS auto-zooms on focus
+       regardless of the viewport meta tag above. */
+    font-size: 16px;
     background-color: #FFFFFF;
     color: #111111;
     border: 1px solid var(--border);
@@ -104,34 +137,56 @@
     Built on the NASEM (2021) model. Every number this assistant gives you
     is backed by a real equation -- ask "why" and it will show its work.
   </p>
-  <div id="chat"></div>
+  <!-- Fixed visual position (top right) is independent of DOM position;
+       this stays here in reading order -- after the intro paragraph,
+       before the chat log -- regardless of where it appears on screen. -->
+  <button id="newConversationBtn" type="button">New Conversation</button>
+  <!-- role="log" + aria-relevant="additions": only newly-added nodes get
+       announced, never the whole history re-read. aria-atomic on each
+       article means a whole exchange is announced as one coherent unit
+       once inserted -- and an inserted response subtree is never
+       mutated again afterward. -->
+  <div id="chat" role="log" aria-live="polite" aria-relevant="additions"></div>
   <div id="inputRow">
     <input id="messageInput" type="text" placeholder="Ask about a lactating cow's requirements..." autofocus>
     <button id="sendBtn">Send</button>
   </div>
-  <div id="status" class="muted"></div>
+  <!-- Separate, transient status channel (e.g. "Thinking...") -- distinct
+       from the #chat log so a fleeting status message never becomes part
+       of the permanent conversation history that gets read back later. -->
+  <div id="status" class="muted" role="status" aria-live="polite"></div>
 
 <script>
-let history = [];
+const STORAGE_KEY = 'anllms_conversation_v1';
+
+let history = [];       // conversation context sent to the backend API
+let exchanges = [];     // {prompt, response} pairs, for persistence/rebuild
 let exchangeCount = 0;
 
 const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('messageInput');
 const statusEl = document.getElementById('status');
 const sendBtn = document.getElementById('sendBtn');
+const newConversationBtn = document.getElementById('newConversationBtn');
 
 function renderMarkdown(text) {
+  let html;
   if (window.marked && window.DOMPurify) {
     const raw = marked.parse(text);
-    return DOMPurify.sanitize(raw);
+    html = DOMPurify.sanitize(raw);
+  } else {
+    // Fallback if the CDN libraries failed to load: escape and preserve
+    // line breaks rather than showing raw, unescaped text.
+    const escaped = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    html = `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
   }
-  // Fallback if the CDN libraries failed to load: escape and preserve line breaks
-  // rather than showing raw, unescaped text.
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
+  // Collapse whitespace sitting between tags (e.g. the newline marked.js
+  // puts between "</p>" and the next "<p>") so it doesn't become a stray
+  // empty text node between paragraphs when parsed into the DOM.
+  return html.replace(/>\s+</g, '><');
 }
 
 function makeCopyButton(getText, ariaLabel) {
@@ -165,18 +220,22 @@ function makePlaceholderButton(label, id) {
   return btn;
 }
 
-function startExchange(userText) {
+// Builds and appends the prompt half of an exchange immediately. This
+// half is never mutated again after insertion.
+function addPrompt(userText) {
   exchangeCount += 1;
   const n = exchangeCount;
 
   const article = document.createElement('article');
   article.className = 'exchange';
+  article.setAttribute('aria-atomic', 'true');
 
   const h2 = document.createElement('h2');
   h2.textContent = `PROMPT ${n}.`;
   article.appendChild(h2);
 
   const promptP = document.createElement('p');
+  promptP.className = 'prompt-text';
   promptP.textContent = userText;
   article.appendChild(promptP);
 
@@ -186,32 +245,85 @@ function startExchange(userText) {
   promptActions.appendChild(makePlaceholderButton('Edit', `edit-prompt-${n}`));
   article.appendChild(promptActions);
 
-  const h3 = document.createElement('h3');
-  h3.textContent = `RESPONSE ${n}.`;
-  article.appendChild(h3);
-
-  const responseBody = document.createElement('div');
-  responseBody.className = 'response-body muted';
-  responseBody.textContent = 'Thinking...';
-  article.appendChild(responseBody);
-
-  const responseActions = document.createElement('div');
-  responseActions.className = 'actions';
-  responseActions.appendChild(makeCopyButton(() => responseBody.dataset.raw || '', `Copy response ${n}`));
-  responseActions.appendChild(makePlaceholderButton('Good response', `good-response-${n}`));
-  responseActions.appendChild(makePlaceholderButton('Bad response', `bad-response-${n}`));
-  article.appendChild(responseActions);
-
   chatEl.appendChild(article);
   chatEl.scrollTop = chatEl.scrollHeight;
 
-  return { responseBody };
+  return { article, n };
 }
 
-function fillResponse(responseBody, assistantText) {
-  responseBody.classList.remove('muted');
-  responseBody.dataset.raw = assistantText;
+// Builds the entire response half (heading, body, actions) off-DOM as one
+// fragment, then appends it in a single operation once the real text is
+// ready. Nothing here is created early and mutated later.
+function addResponse(article, n, assistantText) {
+  const fragment = document.createDocumentFragment();
+
+  const h3 = document.createElement('h3');
+  h3.textContent = `RESPONSE ${n}.`;
+  fragment.appendChild(h3);
+
+  const responseBody = document.createElement('div');
+  responseBody.className = 'response-body';
   responseBody.innerHTML = renderMarkdown(assistantText);
+  fragment.appendChild(responseBody);
+
+  const responseActions = document.createElement('div');
+  responseActions.className = 'actions';
+  responseActions.appendChild(makeCopyButton(() => assistantText, `Copy response ${n}`));
+  responseActions.appendChild(makePlaceholderButton('Good response', `good-response-${n}`));
+  responseActions.appendChild(makePlaceholderButton('Bad response', `bad-response-${n}`));
+  fragment.appendChild(responseActions);
+
+  article.appendChild(fragment);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function saveConversation() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ apiHistory: history, exchanges: exchanges }));
+  } catch (e) {
+    // localStorage unavailable or full -- chat still works for this
+    // session, it just won't survive a refresh. Not worth surfacing to
+    // the user as an error.
+  }
+}
+
+function restoreConversation() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  } catch (e) {
+    saved = null;
+  }
+  if (!saved || !Array.isArray(saved.exchanges) || saved.exchanges.length === 0) return;
+
+  // Detach the live region while bulk-restoring so the whole restored
+  // history isn't announced at once on page load -- only genuinely new
+  // messages sent during this session should trigger an announcement.
+  chatEl.removeAttribute('aria-live');
+  chatEl.removeAttribute('role');
+
+  history = saved.apiHistory || [];
+  saved.exchanges.forEach((ex) => {
+    const { article, n } = addPrompt(ex.prompt);
+    addResponse(article, n, ex.response);
+  });
+  exchanges = saved.exchanges;
+
+  requestAnimationFrame(() => {
+    chatEl.setAttribute('role', 'log');
+    chatEl.setAttribute('aria-live', 'polite');
+  });
+}
+
+function newConversation() {
+  if (!confirm('Start a new conversation? This clears the current chat.')) return;
+  chatEl.innerHTML = '';
+  history = [];
+  exchanges = [];
+  exchangeCount = 0;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  statusEl.textContent = '';
+  inputEl.focus();
 }
 
 async function sendMessage() {
@@ -221,7 +333,8 @@ async function sendMessage() {
   sendBtn.disabled = true;
   statusEl.textContent = 'Thinking...';
 
-  const { responseBody } = startExchange(text);
+  const { article, n } = addPrompt(text);
+  let assistantText;
 
   try {
     const resp = await fetch('/api/chat', {
@@ -231,22 +344,29 @@ async function sendMessage() {
     });
     const data = await resp.json();
     if (data.error) {
-      fillResponse(responseBody, `Error: ${data.error}`);
+      assistantText = `Error: ${data.error}`;
     } else {
-      fillResponse(responseBody, data.reply);
+      assistantText = data.reply;
       history = data.history;
     }
   } catch (e) {
-    fillResponse(responseBody, `Error contacting server: ${e}`);
-  } finally {
-    statusEl.textContent = '';
-    sendBtn.disabled = false;
-    inputEl.focus();
+    assistantText = `Error contacting server: ${e}`;
   }
+
+  addResponse(article, n, assistantText);
+  exchanges.push({ prompt: text, response: assistantText });
+  saveConversation();
+
+  statusEl.textContent = '';
+  sendBtn.disabled = false;
+  inputEl.focus();
 }
 
 sendBtn.addEventListener('click', sendMessage);
 inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+newConversationBtn.addEventListener('click', newConversation);
+
+restoreConversation();
 </script>
 </body>
 </html>
