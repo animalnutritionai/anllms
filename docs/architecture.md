@@ -456,10 +456,12 @@ breadth before depth.
 30):** Render (`anllms-chat` service, id `srv-da7jf5jbc2fs73d2bpa0`)
 running `chat/server.py`, which routes model calls through a self-hosted
 LiteLLM proxy (also on Render: `litellm:main-latest`, NOT Cloud Run)
-rather than calling `api.anthropic.com` directly. **Note: README.md
-still describes the proxy as being on Cloud Run as of this session --
-that correction has not yet been applied to README.md and remains an
-open documentation task**, separate from this file (which is correct).
+rather than calling `api.anthropic.com` directly. (An earlier version
+of this note flagged README.md as still describing the proxy as being
+on Cloud Run -- checked again this session: README.md already
+correctly describes it as running on Render. That documentation task
+is closed; this note is left only so the correction is visible, not
+as a claim about current README.md content.)
 Model selectable via the `ANLLMS_MODEL` env var; the `gemini-flash`
 alias currently points at a deprecated underlying model and needs a
 proxy-side fix -- Mistral aliases are a working temporary substitute.
@@ -501,3 +503,37 @@ python -m chat.server
 
 This has been run successfully at least once; it has not been
 stress-tested with varied real conversations.
+
+## Chat UI (frontend) -- Sept 2026 session
+
+`chat/static/index.html` was restructured for accessibility and given
+working Retry:
+
+- Semantic landmarks: `<header>` (banner) / `<main aria-label=
+  "Conversation">` / `<form id="composer" aria-label="Send a message">`.
+  Each exchange is a `<section aria-label="Exchange N">`, individually
+  navigable as its own landmark region.
+- Markdown rendering (`marked` + `DOMPurify`) replaces raw-text
+  responses.
+- Retry is fully wired: replays the original prompt against a recorded
+  pre-exchange history-length snapshot (never a guessed slice of the
+  returned history, which can include intermediate tool-call turns),
+  and only ever exists on the current latest exchange.
+- Edit / Good response / Bad response buttons exist but are still
+  unwired placeholders.
+- Conversation persists across reloads via `localStorage`.
+- **Known limitation, confirmed OS-level, not a code bug:** intermittent
+  VoiceOver + braille "echo" (labels/sentences read twice) on iOS
+  Safari. Reproduced on the live deploy; resolved by clearing history
+  and restarting Safari. Matches a public report of a general iOS
+  17/18 VoiceOver bug and the `CONTRACTABLE` project's confirmed finding
+  that VoiceOver injects braille boundary markers at the display layer,
+  not the DOM. Not fixable in this codebase; a Feedback Assistant
+  report to Apple would be the appropriate next step, mirroring
+  Contractable's.
+- **Known limitation, deliberately deferred:** markdown responses can
+  render as several `<p>` elements where one might be expected, when
+  the LLM's own output places a blank line between sentences. This is
+  model-output structure, not a DOM defect (a real DOM whitespace bug
+  from `white-space: pre-wrap` on the response container was found and
+  fixed separately).
