@@ -113,6 +113,40 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/api/health")
+def health():
+    """Cheap readiness check for the frontend's startup loading screen.
+
+    Render (and the separate self-hosted LiteLLM proxy service it talks
+    to) can both spin down after inactivity, so the first real /api/chat
+    call after a quiet period can hang for tens of seconds. This endpoint
+    lets the frontend poll for "the proxy is actually reachable" before
+    unblocking the composer, rather than the user's first message being
+    the thing that discovers a cold start. `models.list()` is a cheap,
+    tokenless call against the proxy -- just enough to confirm it's up.
+    """
+    api_key = os.environ.get("LITELLM_API_KEY")
+    base_url = os.environ.get("LITELLM_BASE_URL")
+    if not api_key or not base_url:
+        return jsonify({
+            "ready": False,
+            "detail": "LITELLM_API_KEY / LITELLM_BASE_URL not configured.",
+        })
+
+    try:
+        import openai
+
+        client = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=10.0)
+        client.models.list()
+        return jsonify({"ready": True})
+    except Exception as e:
+        app.logger.warning(f"Health check: proxy not reachable yet: {e}")
+        return jsonify({
+            "ready": False,
+            "detail": "The model proxy is still starting up.",
+        })
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     import openai

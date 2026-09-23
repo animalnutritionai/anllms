@@ -537,3 +537,23 @@ working Retry:
   model-output structure, not a DOM defect (a real DOM whitespace bug
   from `white-space: pre-wrap` on the response container was found and
   fixed separately).
+- **Startup loading screen + health check, added Sept 22 session:**
+  `/api/health` (new Flask route in `chat/server.py`) makes a cheap,
+  tokenless `client.models.list()` call against the LiteLLM proxy and
+  reports `{"ready": true/false}`. The frontend polls it every 3s (up
+  to 60s) behind a full-screen loading overlay before enabling the
+  composer, addressing the real cold-start risk noted under
+  "Deployment" above (Render and the separate LiteLLM proxy service
+  can both spin down after inactivity). If the proxy still isn't
+  ready after 60s, the overlay says so and lets the user try anyway
+  rather than blocking indefinitely.
+- **Known limitation:** this only covers proxy-side cold starts. If
+  Render's own `anllms-chat` service itself is asleep (not just the
+  LiteLLM proxy), the very first request for the page will hang in
+  the browser before any of this JS can run -- not fixable from
+  client-side code.
+- Response-generation status ("Thinking…"/"Retrying…") now includes a
+  small spinning icon next to the text, purely decorative
+  (`aria-hidden`) -- the accessible announcement is still the text
+  itself via the existing `aria-live="polite"` region on `#status`,
+  unchanged.
