@@ -18,6 +18,9 @@ chat = [
     "flask",
     "openai",
 ]
+solver = [
+    "scipy",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

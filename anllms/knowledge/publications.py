@@ -33,9 +33,10 @@ NRC_DAIRY_2001 = Publication(
     url=None,
 )
 
-# --- Reference software implementations (mapping/cross-validation only) ---
+# --- Reference software implementations ---
 # See SoftwareReference docstring in knowledge/models.py for the role
-# boundary: these are NEVER called at runtime by this platform.
+# boundary: called at runtime for every equation ("wrap, don't
+# reimplement"), AND used for mapping/cross-validation against the book.
 
 NASEM_DAIRY_2021_SOFTWARE = SoftwareReference(
     name="nasem_dairy (NASEM-Model-Python)",

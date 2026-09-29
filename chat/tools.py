@@ -23,11 +23,24 @@ assistant to say so rather than guess.
 
 from __future__ import annotations
 
+from anllms.decision.diet_request import (
+    IngredientBound, NutrientBound, ObjectiveSpec, RELATIVE_FLOOR_BASIS_EXPLANATION, SolveRequest,
+)
 from anllms.decision.evaluate_diet import evaluate_diet
+from anllms.decision.solve_diet import SolveOptions, solve_diet
 from anllms.feed_library.ingredient import search_feed_library
 from anllms.feed_library.ration import Ration
 from anllms.simulation.animal_state import AnimalState, MilkTarget
 from anllms.simulation.requirements_report import build_requirements_report
+
+# Chat-context defaults for solve_diet's optimizer: deliberately smaller
+# than solve_diet's own SolveOptions defaults, and with polish disabled,
+# to keep a chat turn responsive. This is a real, documented tradeoff --
+# see solve_diet.py's module docstring on runtime scaling and polish's
+# cost -- not a claim that this finds the same quality of answer a
+# longer, offline run would. formulate_diet's tool description below
+# says so to the model, so it can pass that along to the user.
+_CHAT_SOLVE_OPTIONS = SolveOptions(maxiter=15, popsize=8, polish=False)
 
 TOOL_DEFINITIONS = [
     {
@@ -193,6 +206,202 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "formulate_diet",
+        "description": (
+            "Search candidate feeds for a ration that meets every NASEM "
+            "requirement for a LACTATING dairy cow (plus any extra "
+            "nutrient_bounds), optionally at least cost. Use this when the "
+            "user wants a NEW ration built or an existing one improved to "
+            "meet requirements/a target -- not for checking a ration they "
+            "already trust (use evaluate_diet for that). "
+            "Runs a real optimizer (differential evolution) against the "
+            "real reference model for every candidate it tries -- this can "
+            "take up to roughly a minute; tell the user that up front for "
+            "anything beyond a couple of candidate feeds. This chat tool "
+            "uses a FASTER, ROUGHER optimizer pass than is available for "
+            "an offline/batch run, so success=false does not necessarily "
+            "mean no feasible ration exists -- say so if it happens, don't "
+            "present it as a proof of infeasibility. "
+            "Every candidate feed needs a finite max_kg_dm_per_day, either "
+            "per-feed via ingredient_bounds or via default_max_kg_dm_per_day "
+            "-- ask the user for a sensible per-cow upper limit if neither "
+            "is given, rather than guessing one. "
+            "If nutrient_bounds includes ANY relative "
+            "(min_pct_of_requirement/max_pct_of_requirement) bound and the "
+            "user hasn't said which relative_floor_basis they want, EXPLAIN "
+            "the difference in your own words using the two option "
+            "descriptions in this tool's relative_floor_basis parameter, "
+            "then ask which they want, before calling this tool -- don't "
+            "silently default to per_candidate for a choice this material."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bw_kg": {"type": "number", "description": "Body weight, kg"},
+                "bcs": {"type": "number", "description": "Body condition score, 1-5 scale"},
+                "days_in_milk": {"type": "integer", "description": "Days in milk (DIM)"},
+                "parity": {"type": "integer", "description": "1 = first lactation, 2+ = multiparous"},
+                "milk_yield_kg": {"type": "number", "description": "Milk yield, kg/day"},
+                "milk_fat_pct": {"type": "number", "description": "Milk fat, %"},
+                "milk_true_protein_pct": {"type": "number", "description": "Milk true protein, %"},
+                "milk_lactose_pct": {"type": "number", "description": "Milk lactose, %"},
+                "dmi_mode": {
+                    "type": "string",
+                    "enum": ["predict", "actual"],
+                    "description": (
+                        "Same meaning as in evaluate_diet. 'predict' means "
+                        "each candidate ration's own DMI (and therefore its "
+                        "requirements) can shift as the optimizer searches -- "
+                        "ask the user which they want, same as elsewhere."
+                    ),
+                },
+                "known_dmi_kg": {
+                    "type": "number",
+                    "description": "Required if dmi_mode='actual'.",
+                },
+                "candidate_feeds": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Exact feed library names the optimizer may use (it "
+                        "may include any of them at 0 kg -- 'may use' does "
+                        "not mean 'must use'). Confirm names via "
+                        "search_feed_ingredient first."
+                    ),
+                },
+                "ingredient_bounds": {
+                    "type": "array",
+                    "description": (
+                        "OPTIONAL per-feed min/max kg DM/day. A feed not "
+                        "listed here uses default_max_kg_dm_per_day as its "
+                        "max (min 0) -- one or the other must give every "
+                        "candidate feed a finite max."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "feed_name": {"type": "string"},
+                            "min_kg_dm_per_day": {"type": "number"},
+                            "max_kg_dm_per_day": {"type": "number"},
+                        },
+                        "required": ["feed_name"],
+                    },
+                },
+                "default_max_kg_dm_per_day": {
+                    "type": "number",
+                    "description": (
+                        "Fallback max kg DM/day for any candidate feed with "
+                        "no ingredient_bounds entry (or one missing "
+                        "max_kg_dm_per_day). Ask the user for a sensible "
+                        "value rather than inventing one."
+                    ),
+                },
+                "nutrient_bounds": {
+                    "type": "array",
+                    "description": (
+                        "OPTIONAL extra constraints beyond the automatic "
+                        "NASEM requirement floors (which are always applied "
+                        "unless overridden here)."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "nutrient": {
+                                "type": "string",
+                                "description": (
+                                    "'NEL', 'MP', a mineral symbol (e.g. "
+                                    "'Ca'), a vitamin symbol (e.g. 'A'), or "
+                                    "'NDF'/'ADF'. Other nutrients aren't "
+                                    "supported yet -- say so if asked."
+                                ),
+                            },
+                            "min_value": {"type": "number"},
+                            "max_value": {"type": "number"},
+                            "min_pct_of_requirement": {
+                                "type": "number",
+                                "description": (
+                                    "Only valid for NEL/MP/a mineral/a "
+                                    "vitamin (nutrients with a default NASEM "
+                                    "requirement floor)."
+                                ),
+                            },
+                            "max_pct_of_requirement": {"type": "number"},
+                            "override_default": {
+                                "type": "boolean",
+                                "description": (
+                                    "True to REPLACE the nutrient's default "
+                                    "NASEM floor with this bound instead of "
+                                    "adding to it. Required if this bound's "
+                                    "min is looser than the default -- "
+                                    "otherwise the call fails with an "
+                                    "ambiguity error, which is correct "
+                                    "behavior, not a bug to work around "
+                                    "silently: ask the user which they meant."
+                                ),
+                            },
+                        },
+                        "required": ["nutrient"],
+                    },
+                },
+                "relative_floor_basis": {
+                    "type": "string",
+                    "enum": ["per_candidate", "baseline_locked"],
+                    "description": (
+                        "Only matters if nutrient_bounds has a relative "
+                        "bound. per_candidate (default): "
+                        + RELATIVE_FLOOR_BASIS_EXPLANATION["per_candidate"]
+                        + " baseline_locked: "
+                        + RELATIVE_FLOOR_BASIS_EXPLANATION["baseline_locked"]
+                    ),
+                },
+                "baseline_ration_items": {
+                    "type": "array",
+                    "description": (
+                        "Required if relative_floor_basis='baseline_locked': "
+                        "the user's current/starting ration, same shape as "
+                        "evaluate_diet's ration_items."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "kg_dm_per_day": {"type": "number"},
+                        },
+                        "required": ["name", "kg_dm_per_day"],
+                    },
+                },
+                "objective_kind": {
+                    "type": "string",
+                    "enum": ["feasibility_only", "least_cost", "maximize_iofc"],
+                    "description": (
+                        "feasibility_only (default): just find a ration "
+                        "meeting requirements, ignore cost. least_cost / "
+                        "maximize_iofc: need feed_prices for every "
+                        "candidate feed (maximize_iofc also needs "
+                        "milk_price_per_kg)."
+                    ),
+                },
+                "feed_prices": {
+                    "type": "object",
+                    "description": (
+                        "Required for least_cost/maximize_iofc: "
+                        "{feed_name: price_per_kg_dm}, one entry per "
+                        "candidate feed. Ask the user rather than guessing."
+                    ),
+                },
+                "milk_price_per_kg": {
+                    "type": "number",
+                    "description": "Required for objective_kind='maximize_iofc'.",
+                },
+            },
+            "required": [
+                "bw_kg", "bcs", "days_in_milk", "parity", "milk_yield_kg",
+                "milk_fat_pct", "milk_true_protein_pct", "milk_lactose_pct",
+                "candidate_feeds",
+            ],
+        },
+    },
+    {
         "name": "explain_component",
         "description": (
             "Get the full citation, assumptions, limitations, and reasoning "
@@ -248,6 +457,9 @@ class ChatSession:
 
         if tool_name == "evaluate_diet":
             return self._evaluate_diet(tool_input)
+
+        if tool_name == "formulate_diet":
+            return self._formulate_diet(tool_input)
 
         if tool_name == "explain_component":
             return self._explain_component(tool_input["component"])
@@ -479,3 +691,138 @@ class ChatSession:
         if result is None:
             return {"error": f"Unknown component: {component}"}
         return {"explanation": result.explain()}
+
+    def _formulate_diet(self, args: dict) -> dict:
+        animal = AnimalState(
+            bw_kg=args["bw_kg"], bcs=args["bcs"],
+            days_in_milk=args["days_in_milk"], parity=args["parity"],
+        )
+        milk = MilkTarget(
+            yield_kg=args["milk_yield_kg"], fat_pct=args["milk_fat_pct"],
+            true_protein_pct=args["milk_true_protein_pct"],
+            lactose_pct=args["milk_lactose_pct"],
+        )
+        candidate_feeds = args.get("candidate_feeds") or []
+        if not candidate_feeds:
+            return {"error": "formulate_diet requires a non-empty candidate_feeds list."}
+
+        dmi_mode = args.get("dmi_mode", "predict")
+        known_dmi_kg = args.get("known_dmi_kg")
+        if dmi_mode == "actual" and known_dmi_kg is None:
+            return {
+                "error": (
+                    "dmi_mode='actual' requires known_dmi_kg -- ask the user "
+                    "for it, or omit dmi_mode to fall back to prediction."
+                )
+            }
+
+        ingredient_bounds = [
+            IngredientBound(
+                feed_name=b["feed_name"],
+                min_kg_dm_per_day=b.get("min_kg_dm_per_day"),
+                max_kg_dm_per_day=b.get("max_kg_dm_per_day"),
+            )
+            for b in (args.get("ingredient_bounds") or [])
+        ]
+        nutrient_bounds = [
+            NutrientBound(
+                nutrient=b["nutrient"],
+                min_value=b.get("min_value"), max_value=b.get("max_value"),
+                min_pct_of_requirement=b.get("min_pct_of_requirement"),
+                max_pct_of_requirement=b.get("max_pct_of_requirement"),
+                override_default=b.get("override_default", False),
+            )
+            for b in (args.get("nutrient_bounds") or [])
+        ]
+
+        baseline_ration = None
+        if args.get("baseline_ration_items"):
+            baseline_ration = Ration()
+            for item in args["baseline_ration_items"]:
+                baseline_ration.add(item["name"], item["kg_dm_per_day"])
+
+        objective_kind = args.get("objective_kind", "feasibility_only")
+        objective = ObjectiveSpec(
+            kind=objective_kind,
+            feed_prices=args.get("feed_prices") or {},
+            milk_price_per_kg=args.get("milk_price_per_kg"),
+        )
+
+        try:
+            request = SolveRequest(
+                animal=animal, milk=milk, objective=objective,
+                candidate_feeds=candidate_feeds,
+                ingredient_bounds=ingredient_bounds,
+                nutrient_bounds=nutrient_bounds,
+                dmi_mode=dmi_mode, known_dmi_kg=known_dmi_kg,
+                default_max_kg_dm_per_day=args.get("default_max_kg_dm_per_day"),
+                relative_floor_basis=args.get("relative_floor_basis", "per_candidate"),
+                baseline_ration=baseline_ration,
+            )
+        except ValueError as e:
+            # Includes: missing prices, unsupported nutrient, and the
+            # override-ambiguity check -- all real spec errors the model
+            # should relay/ask about, not retry silently with a guess.
+            return {"error": str(e)}
+
+        missing = request.missing_feed_names()
+        if missing:
+            return {
+                "error": (
+                    f"These candidate feed names were not found in the feed "
+                    f"library: {missing}. Use search_feed_ingredient to find "
+                    f"exact names."
+                )
+            }
+        missing_bounds = request.missing_finite_bounds()
+        if missing_bounds:
+            return {
+                "error": (
+                    f"No finite max_kg_dm_per_day (per-feed or via "
+                    f"default_max_kg_dm_per_day) for: {missing_bounds}. Ask "
+                    f"the user for a sensible per-cow upper limit rather "
+                    f"than guessing one."
+                )
+            }
+
+        try:
+            result = solve_diet(request, _CHAT_SOLVE_OPTIONS)
+        except (ValueError, NotImplementedError) as e:
+            # The override-ambiguity check and unsupported-nutrient errors
+            # can also surface here (they're checked again, once, against
+            # a real candidate ration, inside solve_diet itself).
+            return {"error": str(e)}
+        except Exception as e:
+            return {"error": f"Formulation failed: {e}"}
+
+        self.last_report = result.evaluation.report
+
+        return {
+            "success": result.success,
+            "ration": [
+                {"name": name, "kg_dm_per_day": round(kg, 3)}
+                for name, kg in zip(result.ration.feedstuffs, result.ration.kg_dm_per_day)
+                if kg > 1e-6
+            ],
+            "objective_kind": objective_kind,
+            "cost_per_day": round(result.objective_value, 2) if objective.needs_prices() else None,
+            "iofc_per_day": round(result.iofc, 2) if result.iofc is not None else None,
+            "violations": [
+                {
+                    "nutrient": v.nutrient, "kind": v.kind,
+                    "required": round(v.required, 3), "actual": round(v.actual, 3),
+                    "unit": v.unit,
+                }
+                for v in result.violations
+            ],
+            "relative_floor_basis": request.relative_floor_basis,
+            "model_runs_performed": result.nfev,
+            "evaluation_errors": result.n_evaluation_errors,
+            "note": (
+                "This used a faster, rougher optimizer pass suited to a chat "
+                "turn, not an exhaustive search -- success=false means this "
+                "pass didn't find a feasible ration, not that none exists. "
+                "Say so if it happens. Every reported number came from a "
+                "real run of the reference model, not an estimate."
+            ),
+        }

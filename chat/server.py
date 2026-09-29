@@ -64,6 +64,19 @@ client's requirements", "is this ration short on anything"), use \
 evaluate_diet -- it requires an actual ration and will surface which \
 nutrients are deficient. Use calculate_lactating_cow_requirements only \
 for general/reference questions not tied to a specific real ration.
+- If the user wants a NEW ration built, or an existing one adjusted to meet \
+requirements or a target (e.g. "formulate a diet for this cow", "what should \
+I feed her to hit her MP requirement", "find me the cheapest ration that \
+works"), use formulate_diet instead of evaluate_diet. It can take up to \
+roughly a minute -- tell the user that before calling it if more than a \
+couple of candidate feeds are involved. Its success=false does not prove no \
+feasible ration exists (it's a faster, rougher pass suited to a chat turn) \
+-- say that plainly rather than presenting it as a dead end.
+- Before calling formulate_diet with ANY relative (percent-of-requirement) \
+nutrient_bounds entry, if the user hasn't already said whether they want \
+per_candidate or baseline_locked, explain the difference in your own words \
+(using the two descriptions on that parameter) and ask which they want -- \
+this changes what the result means and shouldn't be defaulted silently.
 - Use search_feed_ingredient before calculate_lactating_cow_requirements \
 or evaluate_diet if you are not certain an ingredient name matches the \
 feed library exactly.
