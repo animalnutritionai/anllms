@@ -12,8 +12,10 @@ from anllms.decision.diet_request import (
     IngredientBound,
     NutrientBound,
     ObjectiveSpec,
+    RELATIVE_FLOOR_BASIS_EXPLANATION,
     SolveRequest,
 )
+from anllms.feed_library.ration import Ration
 from anllms.simulation.animal_state import AnimalState, MilkTarget
 
 pytest.importorskip("nasem_dairy", reason="optional dev/test-only dependency")
@@ -67,7 +69,7 @@ def test_ingredient_bound_negative_min_rejected():
 # --- NutrientBound ---
 
 def test_nutrient_bound_requires_min_or_max():
-    with pytest.raises(ValueError, match="must specify min_value and/or max_value"):
+    with pytest.raises(ValueError, match="must specify min_value/max_value"):
         NutrientBound("NDF")
 
 
@@ -79,6 +81,33 @@ def test_nutrient_bound_min_exceeds_max_rejected():
 def test_nutrient_bound_override_default_flag_stored():
     bound = NutrientBound("Ca", min_value=30.0, override_default=True)
     assert bound.override_default is True
+
+
+# --- NutrientBound: relative (pct-of-requirement) bounds ---
+
+def test_nutrient_bound_relative_min_accepted():
+    bound = NutrientBound("MP", min_pct_of_requirement=105.0)
+    assert bound.is_relative() is True
+
+
+def test_nutrient_bound_absolute_bound_is_not_relative():
+    bound = NutrientBound("NDF", min_value=28.0)
+    assert bound.is_relative() is False
+
+
+def test_nutrient_bound_rejects_mixing_absolute_and_relative():
+    with pytest.raises(ValueError, match="cannot mix absolute"):
+        NutrientBound("MP", min_value=1200.0, min_pct_of_requirement=105.0)
+
+
+def test_nutrient_bound_relative_min_exceeds_max_rejected():
+    with pytest.raises(ValueError, match="exceeds max_pct_of_requirement"):
+        NutrientBound("MP", min_pct_of_requirement=110.0, max_pct_of_requirement=100.0)
+
+
+def test_nutrient_bound_negative_relative_pct_rejected():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        NutrientBound("MP", min_pct_of_requirement=-5.0)
 
 
 # --- SolveRequest ---
@@ -131,6 +160,50 @@ def test_solve_request_actual_dmi_mode_requires_known_dmi():
             animal=animal, milk=milk, objective=ObjectiveSpec(kind="feasibility_only"),
             candidate_feeds=["Alfalfa meal"], dmi_mode="actual",
         )
+
+
+def test_solve_request_defaults_to_per_candidate_floor_basis():
+    animal, milk = _animal_and_milk()
+    req = SolveRequest(
+        animal=animal, milk=milk, objective=ObjectiveSpec(kind="feasibility_only"),
+        candidate_feeds=["Alfalfa meal"],
+    )
+    assert req.relative_floor_basis == "per_candidate"
+    assert req.baseline_ration is None
+
+
+def test_solve_request_baseline_locked_requires_baseline_ration():
+    animal, milk = _animal_and_milk()
+    with pytest.raises(ValueError, match="requires baseline_ration"):
+        SolveRequest(
+            animal=animal, milk=milk, objective=ObjectiveSpec(kind="feasibility_only"),
+            candidate_feeds=["Alfalfa meal"], relative_floor_basis="baseline_locked",
+        )
+
+
+def test_solve_request_baseline_locked_accepted_with_baseline_ration():
+    animal, milk = _animal_and_milk()
+    baseline = Ration()
+    baseline.add("Alfalfa meal", 10.0)
+    req = SolveRequest(
+        animal=animal, milk=milk, objective=ObjectiveSpec(kind="feasibility_only"),
+        candidate_feeds=["Alfalfa meal"], relative_floor_basis="baseline_locked",
+        baseline_ration=baseline,
+    )
+    assert req.baseline_ration is baseline
+
+
+def test_solve_request_rejects_unknown_floor_basis():
+    animal, milk = _animal_and_milk()
+    with pytest.raises(ValueError, match="Unknown relative_floor_basis"):
+        SolveRequest(
+            animal=animal, milk=milk, objective=ObjectiveSpec(kind="feasibility_only"),
+            candidate_feeds=["Alfalfa meal"], relative_floor_basis="locked_forever",  # type: ignore[arg-type]
+        )
+
+
+def test_relative_floor_basis_explanation_covers_both_options():
+    assert set(RELATIVE_FLOOR_BASIS_EXPLANATION) == {"per_candidate", "baseline_locked"}
 
 
 def test_solve_request_defaults_to_predict_mode():

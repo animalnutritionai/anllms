@@ -196,3 +196,75 @@ def test_evaluate_diet_actual_mode_without_known_dmi_kg_errors():
     result = session.dispatch("evaluate_diet", args)
     assert "error" in result
     assert "known_dmi_kg" in result["error"]
+
+
+# --- formulate_diet ---
+
+_FORMULATE_ARGS = {
+    "bw_kg": 650, "bcs": 3.0, "days_in_milk": 150, "parity": 2,
+    "milk_yield_kg": 38, "milk_fat_pct": 3.8, "milk_true_protein_pct": 3.2,
+    "milk_lactose_pct": 4.8,
+    "dmi_mode": "actual", "known_dmi_kg": 24.5,
+    "candidate_feeds": [
+        "Alfalfa meal", "Canola meal", "Corn silage, typical", "Corn grain HM, coarse grind",
+    ],
+    "default_max_kg_dm_per_day": 15.0,
+}
+
+
+def test_formulate_diet_requires_candidate_feeds():
+    session = ChatSession()
+    result = session.dispatch("formulate_diet", {**_FORMULATE_ARGS, "candidate_feeds": []})
+    assert "error" in result
+    assert "candidate_feeds" in result["error"]
+
+
+def test_formulate_diet_rejects_unknown_ingredient():
+    session = ChatSession()
+    args = {**_FORMULATE_ARGS, "candidate_feeds": ["Not A Real Feed"]}
+    result = session.dispatch("formulate_diet", args)
+    assert "error" in result
+    assert "Not A Real Feed" in result["error"]
+
+
+def test_formulate_diet_requires_finite_bounds():
+    session = ChatSession()
+    args = dict(_FORMULATE_ARGS)
+    del args["default_max_kg_dm_per_day"]
+    result = session.dispatch("formulate_diet", args)
+    assert "error" in result
+    assert "max_kg_dm_per_day" in result["error"]
+
+
+def test_formulate_diet_surfaces_ambiguity_error_as_clean_error():
+    session = ChatSession()
+    args = {**_FORMULATE_ARGS, "nutrient_bounds": [{"nutrient": "MP", "min_value": 1.0}]}
+    result = session.dispatch("formulate_diet", args)
+    assert "error" in result
+    assert "ambiguous" in result["error"]
+
+
+def test_formulate_diet_rejects_unsupported_nutrient():
+    session = ChatSession()
+    args = {**_FORMULATE_ARGS, "nutrient_bounds": [{"nutrient": "Starch", "min_value": 20.0}]}
+    result = session.dispatch("formulate_diet", args)
+    assert "error" in result
+
+
+def test_formulate_diet_returns_real_ration_and_reports_model_runs():
+    session = ChatSession()
+    result = session.dispatch("formulate_diet", dict(_FORMULATE_ARGS))
+    assert "error" not in result
+    assert isinstance(result["ration"], list)
+    assert result["model_runs_performed"] > 0
+    # "success" reflects whether every default + extra bound was met --
+    # this candidate set is missing e.g. a cobalt source, so a rougher
+    # chat-context pass on it may well be infeasible; that's a real
+    # result to report, not a test bug to paper over.
+    assert result["success"] in (True, False)
+
+
+def test_formulate_diet_reports_cost_only_when_objective_needs_it():
+    session = ChatSession()
+    result = session.dispatch("formulate_diet", dict(_FORMULATE_ARGS))
+    assert result["cost_per_day"] is None  # feasibility_only

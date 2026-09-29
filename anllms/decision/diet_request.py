@@ -53,12 +53,46 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from anllms.feed_library.ration import Ration
 from anllms.simulation.animal_state import AnimalState, MilkTarget
 
 ObjectiveKind = Literal["feasibility_only", "least_cost", "maximize_iofc"]
 
 _OBJECTIVE_KINDS: set[str] = {"feasibility_only", "least_cost", "maximize_iofc"}
 _PRICE_DEPENDENT_KINDS: set[str] = {"least_cost", "maximize_iofc"}
+
+RelativeFloorBasis = Literal["per_candidate", "baseline_locked"]
+_RELATIVE_FLOOR_BASES: set[str] = {"per_candidate", "baseline_locked"}
+
+# Plain-language explanation of the relative_floor_basis choice, kept
+# here (not duplicated in chat/tools.py) so there is exactly one place
+# to update, and so the chat assistant explains this the same way every
+# time. This is a project design decision, not a NASEM-sourced value --
+# see docs/citations.md, Part B3.
+RELATIVE_FLOOR_BASIS_EXPLANATION: dict[str, str] = {
+    "per_candidate": (
+        "Recomputes the target fresh against every candidate ration the "
+        "solver tries -- e.g. '105% of MP requirement' is worked out "
+        "from that candidate's own requirement each time, the same way "
+        "a tip is 15% of whatever the bill comes to. This is the "
+        "default. It needs no extra information and stays accurate even "
+        "if the optimizer moves far from where it started, because "
+        "requirements can shift with diet (e.g. dmi_mode='predict', "
+        "where DMI itself depends on the ration)."
+    ),
+    "baseline_locked": (
+        "Works out the target once, from one ration you supply up "
+        "front (baseline_ration), and holds that single number fixed "
+        "for every candidate the solver tries afterward -- e.g. '105% "
+        "of MP requirement' is fixed at whatever that percentage of the "
+        "starting ration's requirement was, even if later candidates "
+        "look very different. Needs baseline_ration to be set. Useful "
+        "when you want every candidate judged against one known, fixed "
+        "starting point rather than a moving target, but the fixed "
+        "number can go stale if the optimizer wanders far from that "
+        "starting ration."
+    ),
+}
 
 
 @dataclass
@@ -143,21 +177,65 @@ class NutrientBound:
          solve_diet will raise, not guess, if override_default=False is
          used to set a min BELOW an existing default requirement floor,
          since that combination is ambiguous (add both? which wins?).
+
+    ABSOLUTE vs. RELATIVE bounds -- exactly one style per bound, never
+    mixed: either min_value/max_value (an absolute number, e.g.
+    "NDF >= 28%"), or min_pct_of_requirement/max_pct_of_requirement (a
+    percentage of that nutrient's own NASEM requirement, e.g.
+    "MP >= 105% of requirement" -> min_pct_of_requirement=105.0). The
+    relative style only makes sense for a nutrient that HAS a default
+    requirement floor to be a percentage of; solve_diet is expected to
+    raise if it's used for one that doesn't (e.g. NDF). Whether a
+    relative bound is recomputed against each candidate ration or
+    locked to one baseline ration is controlled once, for the whole
+    request, by SolveRequest.relative_floor_basis -- not per-bound, so
+    a caller can't mix the two meanings within one solve. See
+    RELATIVE_FLOOR_BASIS_EXPLANATION above and docs/citations.md
+    (Part B3) for why this is a project decision, not a NASEM value.
     """
 
     nutrient: str  # e.g. "NDF", "NEL", "MP", or a mineral/vitamin symbol like "Ca"
     min_value: float | None = None
     max_value: float | None = None
+    min_pct_of_requirement: float | None = None
+    max_pct_of_requirement: float | None = None
     unit: str | None = None  # informational only, not enforced numerically here
     override_default: bool = False
 
     def __post_init__(self) -> None:
-        if self.min_value is None and self.max_value is None:
-            raise ValueError(f"{self.nutrient!r}: must specify min_value and/or max_value")
+        has_absolute = self.min_value is not None or self.max_value is not None
+        has_relative = self.min_pct_of_requirement is not None or self.max_pct_of_requirement is not None
+
+        if not has_absolute and not has_relative:
+            raise ValueError(
+                f"{self.nutrient!r}: must specify min_value/max_value or "
+                f"min_pct_of_requirement/max_pct_of_requirement"
+            )
+        if has_absolute and has_relative:
+            raise ValueError(
+                f"{self.nutrient!r}: cannot mix absolute (min_value/max_value) and "
+                f"relative (min_pct_of_requirement/max_pct_of_requirement) bounds "
+                f"on the same NutrientBound -- use two separate bounds if you need both"
+            )
         if self.min_value is not None and self.max_value is not None and self.min_value > self.max_value:
             raise ValueError(
                 f"{self.nutrient!r}: min_value ({self.min_value}) exceeds max_value ({self.max_value})"
             )
+        if (
+            self.min_pct_of_requirement is not None
+            and self.max_pct_of_requirement is not None
+            and self.min_pct_of_requirement > self.max_pct_of_requirement
+        ):
+            raise ValueError(
+                f"{self.nutrient!r}: min_pct_of_requirement ({self.min_pct_of_requirement}) "
+                f"exceeds max_pct_of_requirement ({self.max_pct_of_requirement})"
+            )
+        for pct in (self.min_pct_of_requirement, self.max_pct_of_requirement):
+            if pct is not None and pct < 0:
+                raise ValueError(f"{self.nutrient!r}: percent-of-requirement cannot be negative: {pct}")
+
+    def is_relative(self) -> bool:
+        return self.min_pct_of_requirement is not None or self.max_pct_of_requirement is not None
 
 
 @dataclass
@@ -182,7 +260,34 @@ class SolveRequest:
     dmi_mode: Literal["predict", "actual"] = "predict"
     known_dmi_kg: float | None = None
 
+    # Fallback upper bound for any candidate feed with no IngredientBound,
+    # or one that leaves max_kg_dm_per_day unset. Added because solve_diet's
+    # optimizer needs a FINITE search range per feed and this spec's own
+    # default (see IngredientBound docstring: unbounded feeds default to
+    # [0, unbounded]) has no such range. This is a caller-supplied number,
+    # not one this project invents -- solve_diet raises, naming the feeds,
+    # if neither this nor a per-feed bound gives it a finite max.
+    default_max_kg_dm_per_day: float | None = None
+
+    # Governs every relative (min_pct_of_requirement/max_pct_of_requirement)
+    # NutrientBound in this request -- one setting for the whole solve, not
+    # per-bound (see NutrientBound docstring). "per_candidate" is the
+    # default: no extra input needed, and it's the only option that stays
+    # accurate if dmi_mode="predict" lets requirements shift with the diet.
+    # "baseline_locked" requires baseline_ration. Ask the person which they
+    # want using RELATIVE_FLOOR_BASIS_EXPLANATION rather than guessing.
+    relative_floor_basis: RelativeFloorBasis = "per_candidate"
+    baseline_ration: Ration | None = None
+
     def __post_init__(self) -> None:
+        if self.relative_floor_basis not in _RELATIVE_FLOOR_BASES:
+            raise ValueError(
+                f"Unknown relative_floor_basis: {self.relative_floor_basis!r}. "
+                f"Must be one of {_RELATIVE_FLOOR_BASES}"
+            )
+        if self.relative_floor_basis == "baseline_locked" and self.baseline_ration is None:
+            raise ValueError("relative_floor_basis='baseline_locked' requires baseline_ration")
+
         if not self.candidate_feeds:
             raise ValueError("candidate_feeds cannot be empty")
         if len(self.candidate_feeds) != len(set(self.candidate_feeds)):
@@ -220,3 +325,21 @@ class SolveRequest:
         if not self.objective.needs_prices():
             return []
         return [f for f in self.candidate_feeds if f not in self.objective.feed_prices]
+
+    def effective_ingredient_bounds(self, feed_name: str) -> tuple[float, float | None]:
+        """(min_kg, max_kg) for one candidate feed, combining any explicit
+        IngredientBound with default_max_kg_dm_per_day as a fallback upper
+        bound. max_kg is None if neither source gives a finite one --
+        callers that need a finite bound (solve_diet's optimizer) must
+        check for that themselves and fail clearly rather than guess."""
+        bound = next((b for b in self.ingredient_bounds if b.feed_name == feed_name), None)
+        min_kg = bound.min_kg_dm_per_day if bound and bound.min_kg_dm_per_day is not None else 0.0
+        if bound and bound.max_kg_dm_per_day is not None:
+            return min_kg, bound.max_kg_dm_per_day
+        return min_kg, self.default_max_kg_dm_per_day
+
+    def missing_finite_bounds(self) -> list[str]:
+        """Candidate feeds for which effective_ingredient_bounds() has no
+        finite max -- i.e. solve_diet cannot give the optimizer a search
+        range for them yet. Empty list = every feed is boundable."""
+        return [f for f in self.candidate_feeds if self.effective_ingredient_bounds(f)[1] is None]
